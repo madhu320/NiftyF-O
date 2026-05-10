@@ -16,6 +16,7 @@ import { useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { Feather, MaterialCommunityIcons, Ionicons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
+import { useSignalNotifications } from "@/hooks/useSignalNotifications";
 import { RENDER_API_URL, ZERODHA_KITE_URL } from "@/constants/config";
 
 interface PredictionData {
@@ -102,12 +103,19 @@ export default function DashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
+  const { checkAndNotify, notificationsEnabled } = useSignalNotifications();
 
   const { data, isLoading, isError, error, refetch, dataUpdatedAt } = useQuery<PredictionData>({
     queryKey: ["prediction"],
     queryFn: fetchPrediction,
     refetchInterval: 30000,
   });
+
+  useEffect(() => {
+    if (data?.prediction != null && data?.price != null) {
+      checkAndNotify(data.prediction, data.price);
+    }
+  }, [data?.prediction, data?.price]);
 
   useEffect(() => {
     const pulse = Animated.loop(
@@ -163,17 +171,33 @@ export default function DashboardScreen() {
           <Text style={[styles.headerTitle, { color: colors.foreground }]}>NIFTY BANK</Text>
           <Text style={[styles.headerSubtitle, { color: colors.mutedForeground }]}>F&O Signal Dashboard</Text>
         </View>
-        <TouchableOpacity
-          onPress={onRefresh}
-          style={[styles.refreshBtn, { backgroundColor: colors.secondary }]}
-          disabled={isLoading || refreshing}
-        >
-          <Feather
-            name="refresh-cw"
-            size={18}
-            color={isLoading || refreshing ? colors.mutedForeground : colors.primary}
-          />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          {Platform.OS !== "web" && (
+            <View
+              style={[
+                styles.bellBadge,
+                { backgroundColor: colors.secondary },
+              ]}
+            >
+              <Feather
+                name={notificationsEnabled ? "bell" : "bell-off"}
+                size={16}
+                color={notificationsEnabled ? "#22C55E" : colors.mutedForeground}
+              />
+            </View>
+          )}
+          <TouchableOpacity
+            onPress={onRefresh}
+            style={[styles.refreshBtn, { backgroundColor: colors.secondary }]}
+            disabled={isLoading || refreshing}
+          >
+            <Feather
+              name="refresh-cw"
+              size={18}
+              color={isLoading || refreshing ? colors.mutedForeground : colors.primary}
+            />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
@@ -320,6 +344,18 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     marginTop: 2,
     letterSpacing: 0.5,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  bellBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
   },
   refreshBtn: {
     width: 40,
