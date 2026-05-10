@@ -10,6 +10,7 @@ import {
   RefreshControl,
   Platform,
   Animated,
+  type LayoutChangeEvent,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
@@ -18,6 +19,8 @@ import { Feather, MaterialCommunityIcons, Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useColors } from "@/hooks/useColors";
 import { useSignalNotifications } from "@/hooks/useSignalNotifications";
+import { PriceChart } from "@/components/PriceChart";
+import { appendPriceReading, loadPriceHistory, type PriceReading } from "@/utils/priceHistory";
 import { RENDER_API_URL, ZERODHA_KITE_URL } from "@/constants/config";
 
 interface PredictionData {
@@ -115,9 +118,16 @@ export default function DashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [fetchEnabled, setFetchEnabled] = useState(false);
   const [warmSecondsLeft, setWarmSecondsLeft] = useState(WARMUP_SECONDS);
+  const [priceReadings, setPriceReadings] = useState<PriceReading[]>([]);
+  const [chartWidth, setChartWidth] = useState(0);
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const { checkAndNotify, notificationsEnabled } = useSignalNotifications();
+
+  // Load stored price history on mount
+  useEffect(() => {
+    loadPriceHistory().then(setPriceReadings);
+  }, []);
 
   const { data, isLoading, isError, error, refetch, dataUpdatedAt } = useQuery<PredictionData>({
     queryKey: ["prediction"],
@@ -158,6 +168,13 @@ export default function DashboardScreen() {
       checkAndNotify(data.prediction, data.price);
     }
   }, [data?.prediction, data?.price]);
+
+  // Append price reading every time a new price arrives
+  useEffect(() => {
+    if (data?.price != null) {
+      appendPriceReading(data.price).then(setPriceReadings);
+    }
+  }, [data?.price, dataUpdatedAt]);
 
   useEffect(() => {
     const pulse = Animated.loop(
@@ -333,7 +350,12 @@ export default function DashboardScreen() {
             </View>
 
             {/* Price Card */}
-            <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View
+              style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
+              onLayout={(e: LayoutChangeEvent) =>
+                setChartWidth(e.nativeEvent.layout.width - 40)
+              }
+            >
               <View style={styles.cardLabelRow}>
                 <MaterialCommunityIcons name="currency-inr" size={14} color={colors.mutedForeground} />
                 <Text style={[styles.cardLabel, { color: colors.mutedForeground }]}>Current Price</Text>
@@ -348,6 +370,23 @@ export default function DashboardScreen() {
                   : "—"}
               </Text>
               <Text style={[styles.priceSubtext, { color: colors.mutedForeground }]}>Nifty Bank Index</Text>
+
+              {chartWidth > 0 && (
+                <View style={styles.chartWrapper}>
+                  <PriceChart
+                    readings={priceReadings}
+                    width={chartWidth}
+                    height={130}
+                    colors={{
+                      primary: "#22C55E",
+                      destructive: "#EF4444",
+                      mutedForeground: colors.mutedForeground,
+                      border: colors.border,
+                      foreground: colors.foreground,
+                    }}
+                  />
+                </View>
+              )}
             </View>
 
             {/* Sentiment Card */}
@@ -540,6 +579,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: "Inter_400Regular",
     letterSpacing: 0.3,
+  },
+  chartWrapper: {
+    marginTop: 16,
   },
   sentimentContainer: { gap: 12 },
   sentimentHeader: {
