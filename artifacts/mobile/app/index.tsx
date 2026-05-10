@@ -19,6 +19,7 @@ import { Feather, MaterialCommunityIcons, Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useColors } from "@/hooks/useColors";
 import { useSignalNotifications } from "@/hooks/useSignalNotifications";
+import { useMarketStatus } from "@/hooks/useMarketStatus";
 import { PriceChart } from "@/components/PriceChart";
 import { appendPriceReading, loadPriceHistory, type PriceReading } from "@/utils/priceHistory";
 import { RENDER_API_URL, ZERODHA_KITE_URL } from "@/constants/config";
@@ -123,6 +124,7 @@ export default function DashboardScreen() {
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const { checkAndNotify, notificationsEnabled } = useSignalNotifications();
+  const market = useMarketStatus();
 
   // Load stored price history on mount
   useEffect(() => {
@@ -291,6 +293,21 @@ export default function DashboardScreen() {
             </View>
           </View>
         )}
+
+        {/* Market Status Card */}
+        <View style={[styles.marketCard, { backgroundColor: market.bg, borderColor: market.color + "55" }]}>
+          <View style={styles.marketLeft}>
+            <View style={[styles.marketDot, { backgroundColor: market.color }]} />
+            <View>
+              <Text style={[styles.marketLabel, { color: market.color }]}>{market.label}</Text>
+              <Text style={[styles.marketSub, { color: colors.mutedForeground }]}>NSE · India</Text>
+            </View>
+          </View>
+          <View style={styles.marketRight}>
+            <Text style={[styles.marketNext, { color: colors.mutedForeground }]}>{market.nextEventLabel}</Text>
+            <Text style={[styles.marketNextTime, { color: market.color }]}>{market.nextEventTime}</Text>
+          </View>
+        </View>
 
         {isLoading && !data ? (
           <View style={styles.centered}>
@@ -635,6 +652,46 @@ const styles = StyleSheet.create({
   gaugeLabel: {
     fontSize: 11,
     fontFamily: "Inter_500Medium",
+  },
+  marketCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  marketLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  marketDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  marketLabel: {
+    fontSize: 14,
+    fontFamily: "Inter_700Bold",
+  },
+  marketSub: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    marginTop: 1,
+  },
+  marketRight: {
+    alignItems: "flex-end",
+    gap: 2,
+  },
+  marketNext: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+  },
+  marketNextTime: {
+    fontSize: 12,
+    fontFamily: "Inter_700Bold",
   },
   warmupCard: {
     borderRadius: 16,
