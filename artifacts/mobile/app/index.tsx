@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -25,49 +25,72 @@ interface PredictionData {
 }
 
 async function fetchPrediction(): Promise<PredictionData> {
-  const res = await fetch(`${RENDER_API_URL}`);
+  const res = await fetch(`${RENDER_API_URL}/predict`);
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   return res.json();
 }
 
-function SentimentBar({ score, colors }: { score: number; colors: ReturnType<typeof useColors> }) {
-  const clampedScore = Math.max(0, Math.min(100, score));
-  const barColor =
-    clampedScore >= 65
-      ? colors.primary
-      : clampedScore >= 40
-      ? colors.accent
-      : colors.destructive;
+function getSentimentInfo(score: number) {
+  if (score >= 60) return { label: "Positive", color: "#22C55E", bg: "#22C55E22", icon: "arrow-up-circle" as const };
+  if (score >= 40) return { label: "Neutral", color: "#F5C518", bg: "#F5C51822", icon: "minus-circle" as const };
+  return { label: "Negative", color: "#EF4444", bg: "#EF444422", icon: "arrow-down-circle" as const };
+}
 
-  const label =
-    clampedScore >= 65 ? "Bullish" : clampedScore >= 40 ? "Neutral" : "Bearish";
+function SentimentGauge({ score, colors }: { score: number; colors: ReturnType<typeof useColors> }) {
+  const clampedScore = Math.max(0, Math.min(100, score));
+  const { label, color, bg, icon } = getSentimentInfo(clampedScore);
+  const animWidth = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(animWidth, {
+      toValue: clampedScore,
+      duration: 900,
+      useNativeDriver: false,
+    }).start();
+  }, [clampedScore]);
 
   return (
     <View style={styles.sentimentContainer}>
       <View style={styles.sentimentHeader}>
-        <Text style={[styles.sentimentLabel, { color: colors.mutedForeground }]}>
-          Market Sentiment
-        </Text>
-        <Text style={[styles.sentimentScore, { color: barColor }]}>
+        <View style={styles.cardLabelRow}>
+          <MaterialCommunityIcons name="speedometer" size={14} color={colors.mutedForeground} />
+          <Text style={[styles.cardLabel, { color: colors.mutedForeground }]}>Market Sentiment</Text>
+        </View>
+        <Text style={[styles.sentimentScore, { color }]}>
           {clampedScore.toFixed(1)}
-          <Text style={[styles.sentimentScoreMax, { color: colors.mutedForeground }]}>
-            /100
-          </Text>
+          <Text style={[styles.sentimentScoreMax, { color: colors.mutedForeground }]}>/100</Text>
         </Text>
       </View>
-      <View style={[styles.barTrack, { backgroundColor: colors.border }]}>
-        <View
+
+      {/* Color-coded badge */}
+      <View style={[styles.sentimentBadge, { backgroundColor: bg }]}>
+        <Feather name={icon} size={18} color={color} />
+        <Text style={[styles.sentimentBadgeText, { color }]}>{label}</Text>
+      </View>
+
+      {/* Animated gradient bar */}
+      <View style={[styles.gaugeTrack, { backgroundColor: colors.border }]}>
+        <Animated.View
           style={[
-            styles.barFill,
-            { width: `${clampedScore}%` as any, backgroundColor: barColor },
+            styles.gaugeFill,
+            {
+              width: animWidth.interpolate({
+                inputRange: [0, 100],
+                outputRange: ["0%", "100%"],
+              }),
+              backgroundColor: color,
+            },
           ]}
         />
+        {/* Threshold markers */}
+        <View style={[styles.gaugeMarker, { left: "40%" }]} />
+        <View style={[styles.gaugeMarker, { left: "60%" }]} />
       </View>
-      <View style={styles.sentimentFooter}>
-        <Text style={[styles.sentimentTag, { color: barColor }]}>{label}</Text>
-        <Text style={[styles.sentimentTagSmall, { color: colors.mutedForeground }]}>
-          0 — Bearish · 50 — Neutral · 100 — Bullish
-        </Text>
+
+      <View style={styles.gaugeLabels}>
+        <Text style={[styles.gaugeLabel, { color: "#EF4444" }]}>Negative</Text>
+        <Text style={[styles.gaugeLabel, { color: "#F5C518" }]}>Neutral</Text>
+        <Text style={[styles.gaugeLabel, { color: "#22C55E" }]}>Positive</Text>
       </View>
     </View>
   );
@@ -77,13 +100,25 @@ export default function DashboardScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
-  const scaleAnim = React.useRef(new Animated.Value(1)).current;
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
 
-  const { data, isLoading, isError, error, refetch } = useQuery<PredictionData>({
+  const { data, isLoading, isError, error, refetch, dataUpdatedAt } = useQuery<PredictionData>({
     queryKey: ["prediction"],
     queryFn: fetchPrediction,
     refetchInterval: 30000,
   });
+
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.5, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 900, useNativeDriver: true }),
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, []);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -101,8 +136,11 @@ export default function DashboardScreen() {
   }, [scaleAnim]);
 
   const isCall = data?.prediction?.toLowerCase() === "call";
-  const predictionColor = isCall ? colors.primary : colors.destructive;
+  const predictionColor = isCall ? "#22C55E" : "#EF4444";
   const predictionIcon = isCall ? "trending-up" : "trending-down";
+  const lastUpdated = dataUpdatedAt
+    ? new Date(dataUpdatedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    : null;
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
@@ -122,12 +160,8 @@ export default function DashboardScreen() {
         ]}
       >
         <View>
-          <Text style={[styles.headerTitle, { color: colors.foreground }]}>
-            NIFTY BANK
-          </Text>
-          <Text style={[styles.headerSubtitle, { color: colors.mutedForeground }]}>
-            F&O Signal Dashboard
-          </Text>
+          <Text style={[styles.headerTitle, { color: colors.foreground }]}>NIFTY BANK</Text>
+          <Text style={[styles.headerSubtitle, { color: colors.mutedForeground }]}>F&O Signal Dashboard</Text>
         </View>
         <TouchableOpacity
           onPress={onRefresh}
@@ -143,39 +177,27 @@ export default function DashboardScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={[
-          styles.scroll,
-          { paddingBottom: bottomPad + 24 },
-        ]}
+        contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 24 }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={colors.primary}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
         }
       >
         {isLoading && !data ? (
           <View style={styles.centered}>
             <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>
-              Fetching signals...
-            </Text>
+            <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>Fetching signals...</Text>
           </View>
         ) : isError ? (
           <View style={styles.errorContainer}>
-            <View
-              style={[styles.errorCard, { backgroundColor: colors.card, borderColor: colors.destructive }]}
-            >
-              <Ionicons name="warning-outline" size={40} color={colors.destructive} />
-              <Text style={[styles.errorTitle, { color: colors.foreground }]}>
-                Connection Failed
-              </Text>
+            <View style={[styles.errorCard, { backgroundColor: colors.card, borderColor: "#EF4444" }]}>
+              <Ionicons name="warning-outline" size={40} color="#EF4444" />
+              <Text style={[styles.errorTitle, { color: colors.foreground }]}>Connection Failed</Text>
               <Text style={[styles.errorMsg, { color: colors.mutedForeground }]}>
-                {RENDER_API_URL.includes("your-api")
-                  ? "Set your Render API URL in constants/config.ts"
-                  : (error as Error)?.message ?? "Unable to reach the prediction API"}
+                {(error as Error)?.message ?? "Unable to reach the prediction API"}
+              </Text>
+              <Text style={[styles.errorUrl, { color: colors.mutedForeground }]}>
+                {RENDER_API_URL}/predict
               </Text>
               <TouchableOpacity
                 onPress={() => refetch()}
@@ -189,26 +211,31 @@ export default function DashboardScreen() {
         ) : (
           <>
             {/* Prediction Card */}
-            <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View
+              style={[
+                styles.card,
+                {
+                  backgroundColor: colors.card,
+                  borderColor: predictionColor + "55",
+                  borderWidth: 1.5,
+                },
+              ]}
+            >
               <View style={styles.cardLabelRow}>
-                <MaterialCommunityIcons
-                  name="signal-cellular-3"
-                  size={14}
-                  color={colors.mutedForeground}
-                />
-                <Text style={[styles.cardLabel, { color: colors.mutedForeground }]}>
-                  Signal Prediction
-                </Text>
+                <MaterialCommunityIcons name="signal-cellular-3" size={14} color={colors.mutedForeground} />
+                <Text style={[styles.cardLabel, { color: colors.mutedForeground }]}>Signal Prediction</Text>
               </View>
               <View style={styles.predictionRow}>
-                <Feather name={predictionIcon as any} size={44} color={predictionColor} />
+                <View style={[styles.predictionIconWrap, { backgroundColor: predictionColor + "22" }]}>
+                  <Feather name={predictionIcon as any} size={36} color={predictionColor} />
+                </View>
                 <Text style={[styles.predictionText, { color: predictionColor }]}>
                   {data?.prediction?.toUpperCase() ?? "—"}
                 </Text>
               </View>
               <View style={[styles.predictionBadge, { backgroundColor: predictionColor + "22" }]}>
                 <Text style={[styles.predictionBadgeText, { color: predictionColor }]}>
-                  {isCall ? "Buy Call Option" : "Buy Put Option"}
+                  {isCall ? "▲ Buy Call Option" : "▼ Buy Put Option"}
                 </Text>
               </View>
             </View>
@@ -216,14 +243,8 @@ export default function DashboardScreen() {
             {/* Price Card */}
             <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <View style={styles.cardLabelRow}>
-                <MaterialCommunityIcons
-                  name="currency-inr"
-                  size={14}
-                  color={colors.mutedForeground}
-                />
-                <Text style={[styles.cardLabel, { color: colors.mutedForeground }]}>
-                  Current Price
-                </Text>
+                <MaterialCommunityIcons name="currency-inr" size={14} color={colors.mutedForeground} />
+                <Text style={[styles.cardLabel, { color: colors.mutedForeground }]}>Current Price</Text>
               </View>
               <Text style={[styles.priceText, { color: colors.foreground }]}>
                 ₹
@@ -234,15 +255,13 @@ export default function DashboardScreen() {
                     })
                   : "—"}
               </Text>
-              <Text style={[styles.priceSubtext, { color: colors.mutedForeground }]}>
-                Nifty Bank Index
-              </Text>
+              <Text style={[styles.priceSubtext, { color: colors.mutedForeground }]}>Nifty Bank Index</Text>
             </View>
 
             {/* Sentiment Card */}
             <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
               {data?.sentiment != null ? (
-                <SentimentBar score={data.sentiment} colors={colors} />
+                <SentimentGauge score={data.sentiment} colors={colors} />
               ) : (
                 <Text style={[styles.cardLabel, { color: colors.mutedForeground }]}>
                   Sentiment data unavailable
@@ -250,11 +269,16 @@ export default function DashboardScreen() {
               )}
             </View>
 
-            {/* Live indicator */}
+            {/* Live status */}
             <View style={styles.liveRow}>
-              <View style={[styles.liveDot, { backgroundColor: colors.primary }]} />
+              <Animated.View
+                style={[
+                  styles.liveDot,
+                  { backgroundColor: "#22C55E", transform: [{ scale: pulseAnim }] },
+                ]}
+              />
               <Text style={[styles.liveText, { color: colors.mutedForeground }]}>
-                Auto-refreshes every 30 seconds
+                {lastUpdated ? `Updated at ${lastUpdated}` : "Auto-refreshes every 30s"}
               </Text>
             </View>
           </>
@@ -263,21 +287,13 @@ export default function DashboardScreen() {
         {/* INVEST NOW Button */}
         <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
           <TouchableOpacity
-            style={[styles.investBtn, { backgroundColor: colors.primary }]}
+            style={[styles.investBtn, { backgroundColor: "#22C55E" }]}
             onPress={handleInvestNow}
             activeOpacity={0.85}
           >
-            <MaterialCommunityIcons
-              name="lightning-bolt"
-              size={24}
-              color={colors.primaryForeground}
-            />
-            <Text style={[styles.investBtnText, { color: colors.primaryForeground }]}>
-              INVEST NOW
-            </Text>
-            <Text style={[styles.investBtnSub, { color: colors.primaryForeground + "BB" }]}>
-              via Zerodha Kite
-            </Text>
+            <MaterialCommunityIcons name="lightning-bolt" size={26} color="#0A0F1E" />
+            <Text style={[styles.investBtnText, { color: "#0A0F1E" }]}>INVEST NOW</Text>
+            <Text style={[styles.investBtnSub, { color: "#0A0F1EBB" }]}>via Zerodha Kite</Text>
           </TouchableOpacity>
         </Animated.View>
       </ScrollView>
@@ -286,9 +302,7 @@ export default function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-  },
+  screen: { flex: 1 },
   header: {
     flexDirection: "row",
     alignItems: "flex-end",
@@ -329,9 +343,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: "Inter_400Regular",
   },
-  errorContainer: {
-    paddingVertical: 20,
-  },
+  errorContainer: { paddingVertical: 20 },
   errorCard: {
     borderRadius: 16,
     borderWidth: 1,
@@ -348,6 +360,12 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     textAlign: "center",
     lineHeight: 20,
+  },
+  errorUrl: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    textAlign: "center",
+    opacity: 0.6,
   },
   retryBtn: {
     flexDirection: "row",
@@ -386,6 +404,13 @@ const styles = StyleSheet.create({
     gap: 14,
     marginBottom: 14,
   },
+  predictionIconWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   predictionText: {
     fontSize: 52,
     fontFamily: "Inter_700Bold",
@@ -412,19 +437,11 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     letterSpacing: 0.3,
   },
-  sentimentContainer: {
-    gap: 10,
-  },
+  sentimentContainer: { gap: 12 },
   sentimentHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-  },
-  sentimentLabel: {
-    fontSize: 12,
-    fontFamily: "Inter_500Medium",
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
+    alignItems: "flex-start",
   },
   sentimentScore: {
     fontSize: 28,
@@ -434,39 +451,56 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: "Inter_400Regular",
   },
-  barTrack: {
-    height: 10,
-    borderRadius: 5,
+  sentimentBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  sentimentBadgeText: {
+    fontSize: 15,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.5,
+  },
+  gaugeTrack: {
+    height: 14,
+    borderRadius: 7,
     overflow: "hidden",
+    position: "relative",
   },
-  barFill: {
-    height: 10,
-    borderRadius: 5,
+  gaugeFill: {
+    height: 14,
+    borderRadius: 7,
   },
-  sentimentFooter: {
+  gaugeMarker: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: 2,
+    backgroundColor: "rgba(0,0,0,0.3)",
+  },
+  gaugeLabels: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
   },
-  sentimentTag: {
-    fontSize: 13,
-    fontFamily: "Inter_600SemiBold",
-  },
-  sentimentTagSmall: {
-    fontSize: 10,
-    fontFamily: "Inter_400Regular",
+  gaugeLabel: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
   },
   liveRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 8,
     justifyContent: "center",
     paddingVertical: 4,
   },
   liveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   liveText: {
     fontSize: 11,
@@ -480,9 +514,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 4,
     marginTop: 8,
-    shadowColor: "#00D4AA",
+    shadowColor: "#22C55E",
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.4,
     shadowRadius: 20,
     elevation: 12,
   },
