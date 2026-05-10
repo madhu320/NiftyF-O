@@ -432,6 +432,24 @@ export default function DashboardScreen() {
           </>
         )}
 
+        {/* Options Chain Entry */}
+        <TouchableOpacity
+          style={[styles.optionsBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+          onPress={() => router.push("/options")}
+          activeOpacity={0.75}
+        >
+          <View style={styles.optionsBtnLeft}>
+            <MaterialCommunityIcons name="table-eye" size={20} color={colors.primary} />
+            <View>
+              <Text style={[styles.optionsBtnTitle, { color: colors.foreground }]}>Options Chain</Text>
+              <Text style={[styles.optionsBtnSub, { color: colors.mutedForeground }]}>
+                OI · LTP · PCR · Strikes
+              </Text>
+            </View>
+          </View>
+          <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+        </TouchableOpacity>
+
         {/* INVEST NOW Button */}
         <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
           <TouchableOpacity
@@ -738,6 +756,28 @@ const styles = StyleSheet.create({
   liveText: {
     fontSize: 11,
     fontFamily: "Inter_400Regular",
+  },
+  optionsBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+  },
+  optionsBtnLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  optionsBtnTitle: {
+    fontSize: 15,
+    fontFamily: "Inter_700Bold",
+  },
+  optionsBtnSub: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    marginTop: 2,
   },
   investBtn: {
     borderRadius: 18,
