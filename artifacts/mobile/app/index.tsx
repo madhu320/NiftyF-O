@@ -31,6 +31,14 @@ async function fetchPrediction(): Promise<PredictionData> {
   return res.json();
 }
 
+async function pingRender(): Promise<void> {
+  try {
+    await fetch(`${RENDER_API_URL}/predict`, { method: "HEAD" });
+  } catch {
+    // ping is best-effort — ignore failures
+  }
+}
+
 function getSentimentInfo(score: number) {
   if (score >= 60) return { label: "Positive", color: "#22C55E", bg: "#22C55E22", icon: "arrow-up-circle" as const };
   if (score >= 40) return { label: "Neutral", color: "#F5C518", bg: "#F5C51822", icon: "minus-circle" as const };
@@ -97,10 +105,15 @@ function SentimentGauge({ score, colors }: { score: number; colors: ReturnType<t
   );
 }
 
+const WARMUP_SECONDS = 30;
+const FETCH_INTERVAL_MS = 30000;
+
 export default function DashboardScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
+  const [fetchEnabled, setFetchEnabled] = useState(false);
+  const [warmSecondsLeft, setWarmSecondsLeft] = useState(WARMUP_SECONDS);
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const { checkAndNotify, notificationsEnabled } = useSignalNotifications();
@@ -108,8 +121,36 @@ export default function DashboardScreen() {
   const { data, isLoading, isError, error, refetch, dataUpdatedAt } = useQuery<PredictionData>({
     queryKey: ["prediction"],
     queryFn: fetchPrediction,
-    refetchInterval: 30000,
+    enabled: fetchEnabled,
+    refetchInterval: fetchEnabled ? FETCH_INTERVAL_MS : false,
   });
+
+  // Warmup: ping immediately, enable fetch after 30 s, then keep pinging every 30 s
+  useEffect(() => {
+    pingRender();
+
+    let secondsLeft = WARMUP_SECONDS;
+    const countdownId = setInterval(() => {
+      secondsLeft -= 1;
+      setWarmSecondsLeft(secondsLeft);
+      if (secondsLeft <= 0) clearInterval(countdownId);
+    }, 1000);
+
+    const enableId = setTimeout(() => {
+      setFetchEnabled(true);
+    }, WARMUP_SECONDS * 1000);
+
+    // After warmup, ping every 30 s (fires 30 s before each subsequent fetch)
+    const pingId = setInterval(() => {
+      pingRender();
+    }, FETCH_INTERVAL_MS);
+
+    return () => {
+      clearInterval(countdownId);
+      clearTimeout(enableId);
+      clearInterval(pingId);
+    };
+  }, []);
 
   useEffect(() => {
     if (data?.prediction != null && data?.price != null) {
@@ -207,6 +248,31 @@ export default function DashboardScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
         }
       >
+        {/* Warm-up banner — visible during the 30 s countdown */}
+        {!fetchEnabled && (
+          <View style={[styles.warmupCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.warmupRow}>
+              <MaterialCommunityIcons name="fire" size={20} color="#F5C518" />
+              <Text style={[styles.warmupTitle, { color: colors.foreground }]}>Waking up server…</Text>
+            </View>
+            <Text style={[styles.warmupSub, { color: colors.mutedForeground }]}>
+              A ping was sent to your Render API. Signal data will load in{" "}
+              <Text style={{ color: "#F5C518", fontFamily: "Inter_700Bold" }}>{warmSecondsLeft}s</Text>
+            </Text>
+            <View style={[styles.warmupTrack, { backgroundColor: colors.border }]}>
+              <View
+                style={[
+                  styles.warmupFill,
+                  {
+                    width: `${((WARMUP_SECONDS - warmSecondsLeft) / WARMUP_SECONDS) * 100}%` as any,
+                    backgroundColor: "#F5C518",
+                  },
+                ]}
+              />
+            </View>
+          </View>
+        )}
+
         {isLoading && !data ? (
           <View style={styles.centered}>
             <ActivityIndicator size="large" color={colors.primary} />
@@ -525,6 +591,36 @@ const styles = StyleSheet.create({
   gaugeLabel: {
     fontSize: 11,
     fontFamily: "Inter_500Medium",
+  },
+  warmupCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    gap: 8,
+  },
+  warmupRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  warmupTitle: {
+    fontSize: 15,
+    fontFamily: "Inter_700Bold",
+  },
+  warmupSub: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    lineHeight: 18,
+  },
+  warmupTrack: {
+    height: 6,
+    borderRadius: 3,
+    overflow: "hidden",
+    marginTop: 4,
+  },
+  warmupFill: {
+    height: 6,
+    borderRadius: 3,
   },
   liveRow: {
     flexDirection: "row",
