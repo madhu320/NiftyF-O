@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
 import { useEffect, useRef, useCallback, useState } from "react";
 import { Platform } from "react-native";
+import { appendHistory } from "@/utils/signalHistory";
 
 const LAST_PREDICTION_KEY = "@niftybank_last_prediction";
 
@@ -79,7 +80,10 @@ export function useSignalNotifications() {
       const prev = lastPrediction.current;
 
       if (prev !== null && prev.toLowerCase() !== newPrediction.toLowerCase()) {
+        // Fire notification
         await sendSignalNotification(prev, newPrediction, price);
+        // Persist to history log
+        await appendHistory({ timestamp: Date.now(), from: prev, to: newPrediction, price });
       }
 
       if (prev !== newPrediction) {

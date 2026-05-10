@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { Feather, MaterialCommunityIcons, Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import { useColors } from "@/hooks/useColors";
 import { useSignalNotifications } from "@/hooks/useSignalNotifications";
 import { RENDER_API_URL, ZERODHA_KITE_URL } from "@/constants/config";
@@ -214,12 +215,7 @@ export default function DashboardScreen() {
         </View>
         <View style={styles.headerActions}>
           {Platform.OS !== "web" && (
-            <View
-              style={[
-                styles.bellBadge,
-                { backgroundColor: colors.secondary },
-              ]}
-            >
+            <View style={[styles.bellBadge, { backgroundColor: colors.secondary }]}>
               <Feather
                 name={notificationsEnabled ? "bell" : "bell-off"}
                 size={16}
@@ -227,6 +223,12 @@ export default function DashboardScreen() {
               />
             </View>
           )}
+          <TouchableOpacity
+            onPress={() => router.push("/history")}
+            style={[styles.refreshBtn, { backgroundColor: colors.secondary }]}
+          >
+            <Feather name="clock" size={18} color={colors.primary} />
+          </TouchableOpacity>
           <TouchableOpacity
             onPress={onRefresh}
             style={[styles.refreshBtn, { backgroundColor: colors.secondary }]}
