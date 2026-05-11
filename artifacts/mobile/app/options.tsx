@@ -248,6 +248,16 @@ export default function OptionsScreen() {
             <PCRBadge pcr={pcr} colors={colors} />
           </View>
 
+          {/* Theoretical data disclaimer */}
+          {data?.theoretical && (
+            <View style={[styles.theoreticalBanner, { backgroundColor: "#F5C51815", borderColor: "#F5C51840" }]}>
+              <Feather name="info" size={12} color="#F5C518" />
+              <Text style={styles.theoreticalText}>
+                Prices are Black-Scholes estimates using live spot · OI is modelled
+              </Text>
+            </View>
+          )}
+
           {/* Column headers */}
           <View style={styles.colHeader}>
             <Text style={[styles.colLabel, { color: CALL_COLOR, flex: 1 }]}>CALL</Text>
@@ -378,6 +388,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 4,
     gap: 6,
+  },
+  theoreticalBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginHorizontal: 16,
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  theoreticalText: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    color: "#F5C518",
+    flex: 1,
   },
   strikeCard: {
     flexDirection: "row",

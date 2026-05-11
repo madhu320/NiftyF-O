@@ -18,6 +18,7 @@ export interface OptionsChainData {
   spot: number;
   strikes: StrikeRow[];
   pcr?: number; // put-call ratio by OI
+  theoretical?: boolean; // true when prices are Black-Scholes estimates
 }
 
 export async function fetchOptionsChain(): Promise<OptionsChainData> {
