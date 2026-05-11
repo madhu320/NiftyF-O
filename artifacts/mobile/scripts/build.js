@@ -4,6 +4,22 @@ const { spawn } = require("child_process");
 const { Readable } = require("stream");
 const { pipeline } = require("stream/promises");
 
+// This build only runs inside a Replit deployment environment where Metro can
+// reach the Expo packager. On external CI/CD (e.g. Render) none of the Replit
+// env vars are present, so skip gracefully instead of failing.
+const isReplitEnv =
+  process.env.REPLIT_INTERNAL_APP_DOMAIN ||
+  process.env.REPLIT_DEV_DOMAIN ||
+  process.env.EXPO_PUBLIC_DOMAIN ||
+  process.env.REPL_ID;
+
+if (!isReplitEnv) {
+  console.log(
+    "@workspace/mobile: skipping Metro build (no Replit environment detected)",
+  );
+  process.exit(0);
+}
+
 let metroProcess = null;
 
 const projectRoot = path.resolve(__dirname, "..");
