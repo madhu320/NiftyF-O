@@ -3,6 +3,8 @@
   "compilerOptions": {
     "baseUrl": ".",
     "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
     "paths": {
       "@/*": [
         "./*"
