@@ -1,0 +1,14 @@
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Mobile App    │    │   API Server    │    │   PostgreSQL    │
+│                 │◄──►│                 │◄──►│   Database      │
+│ React Native    │    │ Express + TS    │    │ Drizzle ORM     │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│  Zerodha Kite   │    │ Algorithmic     │    │ Risk Management │
+│   Connect API   │    │   Engine        │    │   System        │
+│                 │    │                 │    │                 │
+│ Real-time       │◄──►│ 5 Strategies    │◄──►│ Pre/Post Trade  │
+│ Execution       │    │ Signal Fusion   │    │   Controls      │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
