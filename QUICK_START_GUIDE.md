@@ -8,13 +8,20 @@
 ## 1. Database Setup (15 minutes)
 
 ```bash
-# Set environment variables
+# Linux / macOS
 export DATABASE_URL="postgresql://user:password@localhost:5432/trading_db"
 
-# Install dependencies and run migrations
+# Windows PowerShell
+$env:DATABASE_URL = "postgresql://user:password@localhost:5432/trading_db"
+
+# Install dependencies from the monorepo root
 pnpm install
+
+# Run Drizzle migrations for the database package
 pnpm --filter @workspace/db run push
 ```
+
+> Note: The repo already includes PostgreSQL/Drizzle support in `lib/db` with schema definitions, connection pooling, and migration scripts.
 
 ## 2. Start API Server (5 minutes)
 

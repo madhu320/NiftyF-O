@@ -11,6 +11,8 @@ Transform your NiftyF-O app into a professional-grade algorithmic trading platfo
 - [ ] Implement database connection pooling
 - [ ] Set up database backups and monitoring
 
+> Note: `lib/db` already contains Drizzle configuration, PostgreSQL schema definitions, connection pooling, and migration scripts.
+
 ### 1.2 User Authentication & Security
 - [ ] Implement JWT-based authentication
 - [ ] Add password hashing with bcrypt
