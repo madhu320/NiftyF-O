@@ -2,7 +2,7 @@
 
 import { pgTable, serial, text, integer, decimal, timestamp, boolean, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
-import { z } from "zod";
+import { z } from "zod/v4";
 
 // Users table (for multi-user support)
 export const users = pgTable("users", {

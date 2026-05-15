@@ -30,6 +30,12 @@
       "expo-font",
       "expo-web-browser"
     ],
+    "install": {
+      "exclude": [
+        "expo-glass-effect",
+        "react-native-keyboard-controller"
+      ]
+    },
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
