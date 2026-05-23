@@ -1,4 +1,4 @@
-import { RENDER_API_URL } from "@/constants/config";
+import { Platform } from "react-native";
 
 export interface OptionLeg {
   oi: number;
@@ -32,8 +32,14 @@ export interface OptionsChainData {
   theoretical?: boolean; // true when prices are Black-Scholes estimates
 }
 
-export async function fetchOptionsChain(): Promise<OptionsChainData> {
-  const res = await fetch(`${RENDER_API_URL}/options-chain`);
+const API_URL = process.env.EXPO_PUBLIC_API_URL || (Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000');
+
+export async function fetchOptionsChain(expiry?: string): Promise<OptionsChainData> {
+  const url = new URL(`${API_URL}/options-chain`);
+  if (expiry) {
+    url.searchParams.append('expiry', expiry);
+  }
+  const res = await fetch(url.toString());
   if (!res.ok) throw new Error(`${res.status}`);
   const data = await res.json();
   return data as OptionsChainData;
