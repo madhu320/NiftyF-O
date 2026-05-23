@@ -1,4 +1,6 @@
 import { Router, type IRouter } from "express";
+import { logger } from "../lib/logger";
+import { marketStream } from "../lib/marketDataStream";
 
 const router: IRouter = Router();
 
@@ -109,25 +111,11 @@ function nextExpiryDate(): { label: string; T: number } {
   return { label, T };
 }
 
-// ── Spot price via Yahoo Finance ──────────────────────────────────────────────
-
-const YAHOO_URL =
-  "https://query2.finance.yahoo.com/v8/finance/chart/%5ENSEBANK?interval=5m&range=1d";
+// ── Spot price via Live WebSocket ─────────────────────────────────────────────
 
 async function fetchSpot(): Promise<number> {
-  const res = await fetch(YAHOO_URL, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (compatible; NiftyBankBot/1.0)",
-      Accept: "application/json",
-    },
-    signal: AbortSignal.timeout(8_000),
-  });
-  if (!res.ok) throw new Error(`Yahoo Finance ${res.status}`);
-  const body = (await res.json()) as {
-    chart?: { result?: Array<{ meta?: { regularMarketPrice?: number } }> };
-  };
-  const price = body.chart?.result?.[0]?.meta?.regularMarketPrice;
-  if (!price) throw new Error("No price in Yahoo response");
+  const price = marketStream.getLatestPrice('BANKNIFTY');
+  if (!price) throw new Error("No live spot price available from WebSocket");
   return price;
 }
 
@@ -164,37 +152,54 @@ router.get("/options-chain", async (req, res) => {
     const baseIV = T < 1 / 365 ? 0.22 : T < 3 / 365 ? 0.20 : 0.18;
 
     const strikes = [];
+    const symbolsToSubscribe: string[] = [];
+
     for (let i = -HALF; i <= HALF; i++) {
       const K = atmStrike + i * 100;
       const moneyness = (K - spot) / spot;
       const iv = smileIV(moneyness, baseIV);
 
-      const ceLtp = bsPrice(spot, K, T, RISK_FREE, iv, "ce");
-      const peLtp = bsPrice(spot, K, T, RISK_FREE, iv, "pe");
+      // Generate contract symbols (e.g., BANKNIFTY24MAY202645000CE)
+      const ceSymbol = `BANKNIFTY${expiry.replace(/-/g, '').toUpperCase()}${K}CE`;
+      const peSymbol = `BANKNIFTY${expiry.replace(/-/g, '').toUpperCase()}${K}PE`;
+      
+      symbolsToSubscribe.push(ceSymbol, peSymbol);
+
+      // Fetch from live WebSocket if available, otherwise fallback to theoretical model
+      const ceOi = marketStream.getLatestOI(ceSymbol) || modelOI(K, spot, "ce");
+      const peOi = marketStream.getLatestOI(peSymbol) || modelOI(K, spot, "pe");
+      
+      const ceLtp = marketStream.getLatestPrice(ceSymbol) || bsPrice(spot, K, T, RISK_FREE, iv, "ce");
+      const peLtp = marketStream.getLatestPrice(peSymbol) || bsPrice(spot, K, T, RISK_FREE, iv, "pe");
 
       strikes.push({
         strike: K,
         ce: {
-          oi: modelOI(K, spot, "ce"),
-          volume: Math.round(modelOI(K, spot, "ce") * 0.12 / 100) * 100,
+          symbol: ceSymbol,
+          oi: ceOi,
+          volume: marketStream.getLatestVolume(ceSymbol) || Math.round(ceOi * 0.12 / 100) * 100,
           ltp: Math.round(ceLtp * 20) / 20, // round to nearest 0.05
           iv: Math.round(iv * 1000) / 10,  // e.g. 18.4
         },
         pe: {
-          oi: modelOI(K, spot, "pe"),
-          volume: Math.round(modelOI(K, spot, "pe") * 0.10 / 100) * 100,
+          symbol: peSymbol,
+          oi: peOi,
+          volume: marketStream.getLatestVolume(peSymbol) || Math.round(peOi * 0.10 / 100) * 100,
           ltp: Math.round(peLtp * 20) / 20,
           iv: Math.round(iv * 1000) / 10,
         },
       });
     }
 
+    // Instruct the WebSocket stream to listen to these active strikes
+    marketStream.subscribe(symbolsToSubscribe);
+
     const payload = { expiry, spot, strikes, theoretical: true };
     cache = { data: payload, ts: Date.now() };
     res.setHeader("X-Cache", "MISS");
     res.json(payload);
   } catch (err) {
-    req.log.error({ err }, "options-chain route error");
+    logger.error({ err }, "options-chain route error");
     res.status(502).json({ error: "Failed to compute options chain" });
   }
 });

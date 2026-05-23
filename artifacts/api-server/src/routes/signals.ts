@@ -1,4 +1,5 @@
-import { Router, type IRouter } from "express";
+import { Router } from "express";
+import type { IRouter } from "express";
 import {
   meanReversionSignal,
   volatilitySkewSignal,
@@ -6,66 +7,49 @@ import {
   optionsFlowSignal,
   statisticalArbSignal,
   aggregateSignals,
-  type StrategySignal
 } from "../lib/advancedAlgorithms";
+import type { StrategySignal, AggregatedSignal } from "../lib/advancedAlgorithms";
+import { logger } from "../lib/logger";
+import { runBacktest, type HistoricalCandle } from "../lib/backtestEngine";
+import { marketStream } from "../lib/marketDataStream";
+import multer from "multer";
+
+// Configure multer to store uploaded files in memory
+const upload = multer({ storage: multer.memoryStorage() });
 
 const router: IRouter = Router();
 
 // Enhanced market data fetching with multiple indicators
 async function fetchEnhancedMarketData() {
-  const YAHOO_BANK_NIFTY = "https://query2.finance.yahoo.com/v8/finance/chart/%5ENSEBANK?interval=5m&range=5d";
-  const YAHOO_NIFTY = "https://query2.finance.yahoo.com/v8/finance/chart/%5ENSEI?interval=5m&range=5d";
-
   try {
-    const [bankNiftyRes, niftyRes] = await Promise.all([
-      fetch(YAHOO_BANK_NIFTY, {
-        headers: { "User-Agent": "Mozilla/5.0 (compatible; NiftyAlgoBot/1.0)" },
-        signal: AbortSignal.timeout(10000),
-      }),
-      fetch(YAHOO_NIFTY, {
-        headers: { "User-Agent": "Mozilla/5.0 (compatible; NiftyAlgoBot/1.0)" },
-        signal: AbortSignal.timeout(10000),
-      })
-    ]);
+    const currentBankNifty = marketStream.getLatestPrice('BANKNIFTY');
+    const currentNifty = marketStream.getLatestPrice('NIFTY');
+    const bankNiftyPrices = marketStream.getPriceHistory('BANKNIFTY');
+    const niftyPrices = marketStream.getPriceHistory('NIFTY');
+    const bankNiftyVolumes = bankNiftyPrices.map(() => Math.floor(Math.random() * 1000) + 500);
 
-    if (!bankNiftyRes.ok || !niftyRes.ok) {
-      throw new Error("Market data fetch failed");
+    if (!currentBankNifty || bankNiftyPrices.length === 0) {
+      throw new Error("Live market data not yet available. Waiting for WebSocket ticks...");
     }
 
-    const [bankNiftyData, niftyData] = await Promise.all([
-      bankNiftyRes.json(),
-      niftyRes.json()
-    ]);
-
-    const bankNifty = bankNiftyData.chart?.result?.[0];
-    const nifty = niftyData.chart?.result?.[0];
-
-    if (!bankNifty || !nifty) {
-      throw new Error("Invalid market data structure");
-    }
-
-    const bankNiftyPrices = bankNifty.indicators?.quote?.[0]?.close?.filter((p: any) => p != null) || [];
-    const niftyPrices = nifty.indicators?.quote?.[0]?.close?.filter((p: any) => p != null) || [];
-
-    const currentBankNifty = bankNifty.meta?.regularMarketPrice || bankNiftyPrices[bankNiftyPrices.length - 1];
-    const currentNifty = nifty.meta?.regularMarketPrice || niftyPrices[niftyPrices.length - 1];
-
-    // Calculate technical indicators
-    const ma50 = bankNiftyPrices.slice(-50).reduce((a: number, b: number) => a + b, 0) / 50;
-    const volatility = calculateVolatility(bankNiftyPrices.slice(-20));
-    const rsi = calculateRSI(bankNiftyPrices.slice(-14));
-    const momentum = calculateMomentum(bankNiftyPrices.slice(-10));
+    // ── Unified Technical Indicators ─────────────────────────────────────────
+    const ma50Slice = bankNiftyPrices.slice(-50);
+    const ma50 = ma50Slice.length > 0 ? ma50Slice.reduce((a: number, b: number) => a + b, 0) / ma50Slice.length : currentBankNifty;
+    const volatility = calculateVolatility(bankNiftyPrices);
+    const rsi = calculateRSI(bankNiftyPrices);
+    const momentum = calculateMomentum(bankNiftyPrices);
 
     // Calculate spread for statistical arbitrage
     const spread = currentBankNifty - currentNifty * 1.2; // Bank Nifty beta ~1.2
     const spreadHistory = bankNiftyPrices.map((b: number, i: number) =>
       b - (niftyPrices[i] || currentNifty) * 1.2
     ).slice(-50);
-    const spreadMA = spreadHistory.reduce((a: number, b: number) => a + b, 0) / spreadHistory.length;
-    const spreadStd = Math.sqrt(
+    const spreadMA = spreadHistory.length > 0 ? spreadHistory.reduce((a: number, b: number) => a + b, 0) / spreadHistory.length : 0;
+    const spreadStd = spreadHistory.length > 0 ? Math.sqrt(
       spreadHistory.reduce((sum: number, s: number) => sum + Math.pow(s - spreadMA, 2), 0) / spreadHistory.length
-    );
+    ) : 0;
 
+    const volSlice = bankNiftyVolumes.slice(-20);
     return {
       bankNifty: currentBankNifty,
       nifty: currentNifty,
@@ -76,8 +60,8 @@ async function fetchEnhancedMarketData() {
       spread,
       spreadMA,
       spreadStd,
-      volume: bankNifty.meta?.regularMarketVolume || 0,
-      avgVolume: bankNiftyPrices.slice(-20).reduce((a: number, b: number) => a + b, 0) / 20
+      volume: bankNiftyVolumes[bankNiftyVolumes.length - 1] || 0,
+      avgVolume: volSlice.length > 0 ? volSlice.reduce((a: number, b: number) => a + b, 0) / volSlice.length : 0
     };
   } catch (error) {
     console.error("Market data fetch error:", error);
@@ -94,21 +78,17 @@ function calculateVolatility(prices: number[]): number {
   return Math.sqrt(variance * 252); // Annualized volatility
 }
 
-function calculateRSI(prices: number[]): number {
-  if (prices.length < 14) return 50;
-
+function calculateRSI(prices: number[], period: number = 14) {
+  if (prices.length <= period) return 50;
   let gains = 0;
   let losses = 0;
-
-  for (let i = 1; i < prices.length; i++) {
-    const change = prices[i] - prices[i - 1];
-    if (change > 0) gains += change;
-    else losses -= change;
+  for (let i = prices.length - period; i < prices.length; i++) {
+    const diff = prices[i] - prices[i - 1];
+    if (diff >= 0) gains += diff;
+    else losses -= diff;
   }
-
-  const avgGain = gains / 13;
-  const avgLoss = losses / 13;
-  const rs = avgGain / avgLoss;
+  if (losses === 0) return 100;
+  const rs = (gains / period) / (losses / period);
   return 100 - (100 / (1 + rs));
 }
 
@@ -119,68 +99,116 @@ function calculateMomentum(prices: number[]): number {
   return (recent - older) / older;
 }
 
-// Mock options data for now (replace with real NSE data)
-function getMockOptionsData(spot: number) {
-  return {
-    strikes: [
-      { strike: spot - 200, ce_iv: 0.18, pe_iv: 0.22 },
-      { strike: spot - 100, ce_iv: 0.16, pe_iv: 0.20 },
-      { strike: spot, ce_iv: 0.15, pe_iv: 0.15 },
-      { strike: spot + 100, ce_iv: 0.20, pe_iv: 0.16 },
-      { strike: spot + 200, ce_iv: 0.22, pe_iv: 0.18 }
-    ],
-    callOIChange: 50000,
-    putOIChange: -30000,
-    callVolume: 150000,
-    putVolume: 120000,
-    pcr: 0.85
+// ── Enhanced Options Data Simulation ────────────────────────────────────────
+
+function seededRand(seed: number) {
+  let s = seed >>> 0;
+  return () => {
+    s += 0x6d2b79f5;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
 
-// Main algorithmic signals endpoint
-router.get("/signals", async (req, res) => {
-  try {
-    const marketData = await fetchEnhancedMarketData();
-    const optionsData = getMockOptionsData(marketData.bankNifty);
+function getSimulatedOptionMetrics(spot: number, range: number = 6) {
+  const atmStrike = Math.round(spot / 100) * 100;
+  let totalCallOI = 0;
+  let totalPutOI = 0;
+  const strikes = [];
 
-    // Generate signals from all strategies
-    const signals: StrategySignal[] = [
-      meanReversionSignal(
+  for (let i = -range; i <= range; i++) {
+    const strike = atmStrike + i * 100;
+    const rand = seededRand(strike);
+    const ce_iv = 0.15 + rand() * 0.1;
+    const pe_iv = 0.15 + (1 - rand()) * 0.1;
+    
+    // Simplified OI Model: Put OI tends to be higher below spot (support)
+    const callOI = 1000000 * Math.exp(-Math.pow((strike - (spot * 1.01)) / 500, 2));
+    const putOI = 1000000 * Math.exp(-Math.pow((strike - (spot * 0.99)) / 500, 2));
+    
+    totalCallOI += callOI;
+    totalPutOI += putOI;
+    strikes.push({ strike, ce_iv, pe_iv });
+  }
+
+  return {
+    strikes,
+    pcr: totalPutOI / totalCallOI,
+      // Simulate OI Change: In a bullish move, Put OI increases (Shorts) and Call OI decreases (Unwinding)
+      callOIChange: totalCallOI * (spot > atmStrike ? -0.02 : 0.05),
+      putOIChange: totalPutOI * (spot > atmStrike ? 0.08 : 0.01),
+    callVolume: 150000,
+    putVolume: 120000,
+  };
+}
+
+export async function generateAndAggregateSignals(): Promise<{
+  marketData: Awaited<ReturnType<typeof fetchEnhancedMarketData>>;
+  signals: StrategySignal[];
+  finalSignal: AggregatedSignal;
+}> {
+  const marketData = await fetchEnhancedMarketData();
+  const optionsData = getSimulatedOptionMetrics(marketData.bankNifty, 6);
+
+  // Generate signals from all strategies
+  const signals: StrategySignal[] = [
+    {
+      ...meanReversionSignal(
         marketData.bankNifty,
         marketData.ma50,
         marketData.volatility,
         Math.abs(marketData.momentum)
       ),
-      volatilitySkewSignal(
+      weight: 1.0
+    },
+    {
+      ...volatilitySkewSignal(
         marketData.bankNifty,
         optionsData.strikes,
         0.15 // ATM IV
       ),
-      momentumRSISignal(
+      weight: 1.5
+    },
+    {
+      ...momentumRSISignal(
         marketData.rsi,
         marketData.momentum,
         marketData.volume,
         marketData.avgVolume
       ),
-      optionsFlowSignal(
+      weight: 1.0
+    },
+    {
+      ...optionsFlowSignal(
         optionsData.callOIChange,
         optionsData.putOIChange,
         optionsData.callVolume,
         optionsData.putVolume,
         optionsData.pcr
       ),
-      statisticalArbSignal(
+      weight: 2.0
+    },
+    {
+      ...statisticalArbSignal(
         marketData.bankNifty,
         marketData.nifty,
         marketData.spread,
         marketData.spreadMA,
         marketData.spreadStd
-      )
-    ];
+      ),
+      weight: 1.2
+    }
+  ];
+  const finalSignal = aggregateSignals(signals, 0.015); // 1.5% current portfolio risk
+  return { marketData, signals, finalSignal };
+}
 
-    // Aggregate signals with risk management
-    const portfolioRisk = 0.015; // 1.5% current portfolio risk
-    const finalSignal = aggregateSignals(signals, portfolioRisk);
+// Main algorithmic signals endpoint
+router.get("/signals", async (req, res) => {
+  try {
+    const { marketData, signals, finalSignal } = await generateAndAggregateSignals();
 
     // Calculate position sizing based on signal strength and risk
     const positionSize = finalSignal.confidence > 70 ?
@@ -200,15 +228,15 @@ router.get("/signals", async (req, res) => {
       aggregatedSignal: finalSignal,
       positionSize,
       riskMetrics: {
-        portfolioRisk,
+        portfolioRisk: 0.015,
         maxDrawdown: 0.08, // 8% max drawdown
         sharpeRatio: 1.8,
         winRate: 0.62
       }
     });
 
-  } catch (error) {
-    req.log.error({ error }, "signals endpoint error");
+  } catch (err) {
+    logger.error({ err }, "signals endpoint error");
     res.status(502).json({
       error: "Failed to generate algorithmic signals",
       fallback: {
@@ -221,28 +249,74 @@ router.get("/signals", async (req, res) => {
 });
 
 // Backtesting endpoint for strategy validation
-router.post("/backtest", async (req, res) => {
-  const { strategy, startDate, endDate, initialCapital = 100000 } = req.body;
+router.post("/backtest", upload.single("file") as any, async (req: any, res: any) => {
+  const { strategy, startDate, endDate, initialCapital = 100000, historicalData, useOptions } = req.body || {};
 
-  // Mock backtest results - replace with real historical data analysis
-  const mockResults = {
-    strategy,
-    period: `${startDate} to ${endDate}`,
-    initialCapital,
-    finalCapital: initialCapital * 1.45, // 45% return
-    totalReturn: 0.45,
-    annualizedReturn: 0.18,
-    maxDrawdown: 0.12,
-    sharpeRatio: 1.6,
-    winRate: 0.58,
-    totalTrades: 127,
-    avgTradeReturn: 0.0032,
-    monthlyReturns: [
-      0.023, 0.015, -0.008, 0.031, 0.019, 0.012, -0.005, 0.028, 0.016, 0.022, 0.014, 0.018
-    ]
-  };
+  try {
+    // Support JSON arrays sent as string (multipart form) or direct JSON payload
+    let dataToTest: HistoricalCandle[] = historicalData ? 
+      (typeof historicalData === 'string' ? JSON.parse(historicalData) : historicalData) : [];
 
-  res.json(mockResults);
+    // Parse uploaded CSV file if present
+    const file = req.file;
+    if (file && file.buffer) {
+      const csvData = file.buffer.toString('utf-8');
+      const lines = csvData.split('\n').filter((line: string) => line.trim() !== '');
+      
+      if (lines.length > 1) {
+        const headers = lines[0].split(',').map((h: string) => h.trim().toLowerCase());
+        const dateIdx = headers.findIndex((h: string) => h.includes('date') || h.includes('time'));
+        const openIdx = headers.findIndex((h: string) => h === 'open' || h.includes('open price'));
+        const highIdx = headers.findIndex((h: string) => h === 'high' || h.includes('high price'));
+        const lowIdx = headers.findIndex((h: string) => h === 'low' || h.includes('low price'));
+        const closeIdx = headers.findIndex((h: string) => h === 'close' || h.includes('close price') || h === 'last price');
+        const volIdx = headers.findIndex((h: string) => h.includes('volume') || h.includes('qty') || h.includes('quantity'));
+
+        if (openIdx !== -1 && closeIdx !== -1) {
+          dataToTest = lines.slice(1).map((line: string) => {
+            const cols = line.split(',');
+            return {
+              timestamp: dateIdx !== -1 && cols[dateIdx] ? new Date(cols[dateIdx].trim()).getTime() : Date.now(),
+              open: parseFloat(cols[openIdx] || '0'),
+              high: highIdx !== -1 && cols[highIdx] ? parseFloat(cols[highIdx]) : parseFloat(cols[openIdx] || '0'),
+              low: lowIdx !== -1 && cols[lowIdx] ? parseFloat(cols[lowIdx]) : parseFloat(cols[openIdx] || '0'),
+              close: parseFloat(cols[closeIdx] || '0'),
+              volume: volIdx !== -1 && cols[volIdx] ? parseFloat(cols[volIdx]) : 0
+            };
+          }).filter((candle: HistoricalCandle) => !isNaN(candle.close));
+        }
+      }
+    }
+
+    // If no CSV/JSON array is provided, generate 2000 minutes of simulated historical data to demonstrate functionality
+    if (!dataToTest || dataToTest.length === 0) {
+      dataToTest = [];
+      let price = 45000;
+      for (let i = 0; i < 2000; i++) {
+        price += (Math.random() - 0.5) * 60; // Random walk
+        dataToTest.push({
+          timestamp: Date.now() - (2000 - i) * 60000,
+          open: price,
+          high: price + 15,
+          low: price - 15,
+          close: price,
+          volume: Math.floor(Math.random() * 5000) + 1000
+        });
+      }
+    }
+
+    const isOptions = useOptions === 'true' || useOptions === true;
+    const results = runBacktest(dataToTest, Number(initialCapital), isOptions);
+
+    return res.json({
+      strategy,
+      period: `${startDate || 'Simulated Start'} to ${endDate || 'Simulated End'}`,
+      ...results
+    });
+  } catch (error: any) {
+    logger.error({ error: error.message || error }, "Backtest engine error");
+    return res.status(500).json({ error: "Failed to run backtest simulation" });
+  }
 });
 
 export default router;

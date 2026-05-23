@@ -1,5 +1,8 @@
 import { Router, type IRouter } from "express";
 import { logger } from "../lib/logger";
+import { db } from "../lib/db";
+import * as schema from "../lib/schema";
+import { eq } from "drizzle-orm";
 
 const router: IRouter = Router();
 
@@ -38,19 +41,11 @@ interface RiskLimits {
   minMarginBuffer: number; // Minimum margin buffer
 }
 
-// Mock portfolio data - replace with real database
-let portfolio: Position[] = [
-  {
-    symbol: "BANKNIFTY",
-    quantity: 25,
-    avgPrice: 45200,
-    currentPrice: 45150,
-    unrealizedPnL: -1250,
-    realizedPnL: 8500,
-    marketValue: 1128750,
-    timestamp: Date.now()
-  }
-];
+// Fetch portfolio data from database
+export async function getPortfolio(): Promise<Position[]> {
+  const positions = await db.select().from(schema.positions);
+  return positions as Position[];
+}
 
 let riskLimits: RiskLimits = {
   maxPortfolioRisk: 0.05, // 5%
@@ -107,10 +102,11 @@ function calculateRiskMetrics(positions: Position[]): RiskMetrics {
 }
 
 // Check if trade violates risk limits
-function checkRiskLimits(
-  positions: Position[],
+export async function checkRiskLimits(
   newTrade: { symbol: string; quantity: number; price: number; side: 'BUY' | 'SELL' }
-): { allowed: boolean; reason?: string; adjustedQuantity?: number } {
+): Promise<{ allowed: boolean; reason?: string; adjustedQuantity?: number }> {
+  
+  const positions = await getPortfolio();
 
   const currentMetrics = calculateRiskMetrics(positions);
   const newPositionValue = newTrade.quantity * newTrade.price;
@@ -159,7 +155,8 @@ function checkRiskLimits(
 }
 
 // Get portfolio overview
-router.get("/portfolio", (req, res) => {
+router.get("/portfolio", async (req, res) => {
+  const portfolio = await getPortfolio();
   const metrics = calculateRiskMetrics(portfolio);
 
   res.json({
@@ -177,24 +174,28 @@ router.get("/portfolio", (req, res) => {
 });
 
 // Update position (after trade execution)
-router.post("/position/update", (req, res) => {
+router.post("/position/update", async (req, res) => {
   const { symbol, quantity, price, side } = req.body;
 
+  const portfolio = await getPortfolio();
   const existingPosition = portfolio.find(p => p.symbol === symbol);
 
   if (side === 'BUY') {
     if (existingPosition) {
-      // Update existing position
       const totalQuantity = existingPosition.quantity + quantity;
       const totalCost = existingPosition.avgPrice * existingPosition.quantity + price * quantity;
-      existingPosition.avgPrice = totalCost / totalQuantity;
-      existingPosition.quantity = totalQuantity;
-      existingPosition.currentPrice = price;
-      existingPosition.marketValue = totalQuantity * price;
-      existingPosition.unrealizedPnL = (price - existingPosition.avgPrice) * totalQuantity;
+      const newAvgPrice = totalCost / totalQuantity;
+      
+      await db.update(schema.positions).set({
+        quantity: totalQuantity,
+        avgPrice: newAvgPrice,
+        currentPrice: price,
+        marketValue: totalQuantity * price,
+        unrealizedPnL: (price - newAvgPrice) * totalQuantity,
+        timestamp: Date.now()
+      }).where(eq(schema.positions.symbol, symbol));
     } else {
-      // Create new position
-      portfolio.push({
+      await db.insert(schema.positions).values({
         symbol,
         quantity,
         avgPrice: price,
@@ -209,28 +210,32 @@ router.post("/position/update", (req, res) => {
     if (!existingPosition || existingPosition.quantity < quantity) {
       return res.status(400).json({ error: "Insufficient position to sell" });
     }
-
-    // Calculate realized P&L
     const realizedPnL = (price - existingPosition.avgPrice) * quantity;
-    existingPosition.realizedPnL += realizedPnL;
-    existingPosition.quantity -= quantity;
-    existingPosition.marketValue = existingPosition.quantity * price;
+    const newQuantity = existingPosition.quantity - quantity;
 
-    // Remove position if fully closed
-    if (existingPosition.quantity === 0) {
-      portfolio = portfolio.filter(p => p.symbol !== symbol);
+    if (newQuantity === 0) {
+      await db.delete(schema.positions).where(eq(schema.positions.symbol, symbol));
+    } else {
+      await db.update(schema.positions).set({
+        quantity: newQuantity,
+        realizedPnL: existingPosition.realizedPnL + realizedPnL,
+        marketValue: newQuantity * price,
+        timestamp: Date.now()
+      }).where(eq(schema.positions.symbol, symbol));
     }
   }
 
-  logger.info({ symbol, quantity, price, side }, "Position updated");
-  res.json({ success: true, positions: portfolio });
+  logger.info({ symbol, quantity, price, side }, "Position updated in database");
+  const updatedPortfolio = await getPortfolio();
+  res.json({ success: true, positions: updatedPortfolio });
 });
 
 // Validate trade against risk limits
-router.post("/validate-trade", (req, res) => {
+router.post("/validate-trade", async (req, res) => {
   const { symbol, quantity, price, side } = req.body;
 
-  const validation = checkRiskLimits(portfolio, { symbol, quantity, price, side });
+  const validation = await checkRiskLimits({ symbol, quantity, price, side });
+  const portfolio = await getPortfolio();
 
   res.json({
     allowed: validation.allowed,
@@ -266,7 +271,8 @@ router.put("/risk-limits", (req, res) => {
 });
 
 // Get risk alerts
-router.get("/alerts", (req, res) => {
+router.get("/alerts", async (req, res) => {
+  const portfolio = await getPortfolio();
   const metrics = calculateRiskMetrics(portfolio);
   const alerts: string[] = [];
 
