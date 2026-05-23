@@ -5,6 +5,10 @@ export interface OptionLeg {
   volume: number;
   ltp: number;
   iv?: number;
+  delta?: number;
+  gamma?: number;
+  theta?: number;
+  vega?: number;
 }
 
 export interface StrikeRow {
@@ -13,8 +17,15 @@ export interface StrikeRow {
   pe: OptionLeg;
 }
 
+export function getPercentATM(strike: number, spot: number): string {
+  if (!spot) return "0%";
+  const pct = ((strike - spot) / spot) * 100;
+  return `${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`;
+}
+
 export interface OptionsChainData {
   expiry: string;
+  availableExpiries?: string[];
   spot: number;
   strikes: StrikeRow[];
   pcr?: number; // put-call ratio by OI

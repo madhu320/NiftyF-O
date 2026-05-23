@@ -20,6 +20,10 @@ function normCDF(x: number): number {
   return 0.5 + sign * (y - 0.5);
 }
 
+function normPDF(x: number): number {
+  return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
+}
+
 function bsPrice(
   S: number,
   K: number,
@@ -36,6 +40,38 @@ function bsPrice(
     return S * normCDF(d1) - K * Math.exp(-r * T) * normCDF(d2);
   }
   return K * Math.exp(-r * T) * normCDF(-d2) - S * normCDF(-d1);
+}
+
+function bsGreeks(
+  S: number,
+  K: number,
+  T: number,
+  r: number,
+  sigma: number,
+  type: "ce" | "pe"
+) {
+  if (T <= 0 || sigma <= 0) return { delta: 0, gamma: 0, theta: 0, vega: 0 };
+  const sqrtT = Math.sqrt(T);
+  const d1 = (Math.log(S / K) + (r + (sigma * sigma) / 2) * T) / (sigma * sqrtT);
+  const d2 = d1 - sigma * sqrtT;
+
+  const n_d1 = normPDF(d1);
+  const N_d1 = normCDF(d1);
+
+  const gamma = n_d1 / (S * sigma * sqrtT);
+  const vega = (S * n_d1 * sqrtT) / 100; // Value per 1% change in IV
+
+  const delta = type === "ce" ? N_d1 : N_d1 - 1;
+  const theta = type === "ce" 
+    ? (-(S * n_d1 * sigma) / (2 * sqrtT) - r * K * Math.exp(-r * T) * normCDF(d2)) / 365
+    : (-(S * n_d1 * sigma) / (2 * sqrtT) + r * K * Math.exp(-r * T) * normCDF(-d2)) / 365;
+
+  return {
+    delta: Math.round(delta * 100) / 100,
+    gamma: Math.round(gamma * 10000) / 10000,
+    theta: Math.round(theta * 100) / 100, // Daily theta
+    vega: Math.round(vega * 100) / 100
+  };
 }
 
 /** Implied volatility — use a simple smile: higher for deep OTM/ITM */
@@ -83,7 +119,7 @@ function modelOI(
 
 // ── Expiry calculation (Bank Nifty → weekly Wednesdays) ───────────────────────
 
-function nextExpiryDate(): { label: string; T: number } {
+function getExpiryDates(monthsAhead: number = 4): Array<{ label: string; T: number; dateStr: string }> {
   const nowUtc = Date.now();
   const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
   const ist = new Date(nowUtc + IST_OFFSET_MS);
@@ -98,17 +134,30 @@ function nextExpiryDate(): { label: string; T: number } {
     if (pastClose) daysUntil = 7;
   }
 
-  const expiryMs = nowUtc + IST_OFFSET_MS + daysUntil * 86_400_000;
-  const expiry = new Date(expiryMs);
+  const expiries = [];
   const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const label = `${String(expiry.getUTCDate()).padStart(2, "0")}-${MONTHS[expiry.getUTCMonth()]}-${expiry.getUTCFullYear()}`;
 
-  // Time to expiry in years (market closes at 15:30 IST on expiry day)
-  const expiryCloseMs =
-    expiryMs + (15 * 60 + 30 - (5 * 60 + 30)) * 60_000; // 15:30 IST → UTC
-  const T = Math.max(0, (expiryCloseMs - nowUtc) / (365 * 86_400_000));
+  let expiryMs = nowUtc + IST_OFFSET_MS + daysUntil * 86_400_000;
+  
+  const endIst = new Date(ist);
+  endIst.setUTCMonth(endIst.getUTCMonth() + monthsAhead);
+  const endMs = endIst.getTime();
 
-  return { label, T };
+  while (expiryMs <= endMs) {
+    const expiry = new Date(expiryMs);
+    const label = `${String(expiry.getUTCDate()).padStart(2, "0")}-${MONTHS[expiry.getUTCMonth()]}-${expiry.getUTCFullYear()}`;
+    const dateStr = `${expiry.getUTCFullYear()}-${String(expiry.getUTCMonth() + 1).padStart(2, "0")}-${String(expiry.getUTCDate()).padStart(2, "0")}`;
+
+    // Time to expiry in years (market closes at 15:30 IST on expiry day)
+    const expiryCloseMs = expiryMs + (15 * 60 + 30 - (5 * 60 + 30)) * 60_000; // 15:30 IST → UTC
+    const T = Math.max(0, (expiryCloseMs - nowUtc) / (365 * 86_400_000));
+    
+    expiries.push({ label, T, dateStr });
+    
+    expiryMs += 7 * 86_400_000;
+  }
+
+  return expiries;
 }
 
 // ── Spot price via Live WebSocket ─────────────────────────────────────────────
@@ -125,21 +174,34 @@ interface ChainCache {
   data: object;
   ts: number;
 }
-let cache: ChainCache | null = null;
+let cache: Record<string, ChainCache> = {};
 const TTL = 1000; // 1-second cache to strictly match the WebSocket stream tick rate
 
 // ── Route ─────────────────────────────────────────────────────────────────────
 
 router.get("/options-chain", async (req, res) => {
   try {
-    if (cache && Date.now() - cache.ts < TTL) {
+    const requestedExpiry = req.query.expiry as string;
+    const cacheKey = requestedExpiry || 'default';
+
+    if (cache[cacheKey] && Date.now() - cache[cacheKey].ts < TTL) {
       res.setHeader("X-Cache", "HIT");
-      res.json(cache.data);
+      res.json(cache[cacheKey].data);
       return;
     }
 
     const spot = await fetchSpot();
-    const { label: expiry, T } = nextExpiryDate();
+    const allExpiries = getExpiryDates(4);
+    
+    let selectedExpiry = allExpiries[0];
+    if (requestedExpiry) {
+      const match = allExpiries.find(e => e.label === requestedExpiry || e.dateStr === requestedExpiry);
+      if (match) {
+        selectedExpiry = match;
+      }
+    }
+
+    const { label: expiry, T } = selectedExpiry;
 
     // Round spot to nearest 100 to find ATM strike
     const atmStrike = Math.round(spot / 100) * 100;
@@ -171,6 +233,9 @@ router.get("/options-chain", async (req, res) => {
       
       const ceLtp = marketStream.getLatestPrice(ceSymbol) || bsPrice(spot, K, T, RISK_FREE, iv, "ce");
       const peLtp = marketStream.getLatestPrice(peSymbol) || bsPrice(spot, K, T, RISK_FREE, iv, "pe");
+      
+      const ceGreeks = bsGreeks(spot, K, T, RISK_FREE, iv, "ce");
+      const peGreeks = bsGreeks(spot, K, T, RISK_FREE, iv, "pe");
 
       strikes.push({
         strike: K,
@@ -180,6 +245,7 @@ router.get("/options-chain", async (req, res) => {
           volume: marketStream.getLatestVolume(ceSymbol) || Math.round(ceOi * 0.12 / 100) * 100,
           ltp: Math.round(ceLtp * 20) / 20, // round to nearest 0.05
           iv: Math.round(iv * 1000) / 10,  // e.g. 18.4
+          ...ceGreeks
         },
         pe: {
           symbol: peSymbol,
@@ -187,6 +253,7 @@ router.get("/options-chain", async (req, res) => {
           volume: marketStream.getLatestVolume(peSymbol) || Math.round(peOi * 0.10 / 100) * 100,
           ltp: Math.round(peLtp * 20) / 20,
           iv: Math.round(iv * 1000) / 10,
+          ...peGreeks
         },
       });
     }
@@ -194,8 +261,14 @@ router.get("/options-chain", async (req, res) => {
     // Instruct the WebSocket stream to listen to these active strikes
     marketStream.subscribe(symbolsToSubscribe);
 
-    const payload = { expiry, spot, strikes, theoretical: true };
-    cache = { data: payload, ts: Date.now() };
+    const payload = { 
+      expiry, 
+      availableExpiries: allExpiries.map(e => e.label),
+      spot, 
+      strikes, 
+      theoretical: true 
+    };
+    cache[cacheKey] = { data: payload, ts: Date.now() };
     res.setHeader("X-Cache", "MISS");
     res.json(payload);
   } catch (err) {

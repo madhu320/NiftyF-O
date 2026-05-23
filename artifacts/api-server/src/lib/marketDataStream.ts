@@ -10,6 +10,24 @@ export interface TickData {
   timestamp: number;
 }
 
+function isMarketOpen(): boolean {
+  const nowUtc = new Date();
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const istTime = new Date(nowUtc.getTime() + istOffset);
+
+  const day = istTime.getUTCDay(); // 0 = Sunday, 6 = Saturday
+  if (day === 0 || day === 6) return false;
+
+  const hours = istTime.getUTCHours();
+  const minutes = istTime.getUTCMinutes();
+  const timeInMinutes = hours * 60 + minutes;
+
+  const marketStart = 9 * 60 + 15; // 09:15 AM IST
+  const marketEnd = 15 * 60 + 30; // 03:30 PM IST
+
+  return timeInMinutes >= marketStart && timeInMinutes <= marketEnd;
+}
+
 class MarketDataStream extends EventEmitter {
   private isConnected = false;
   private subscriptions = new Set<string>();
@@ -64,7 +82,7 @@ class MarketDataStream extends EventEmitter {
         // Only fetch index spot prices from Yahoo. Allow Option contracts to fallback to Black-Scholes.
         if (s === 'BANKNIFTY' || s === 'NIFTY') {
           const basePrice = await this.fetchRealBasePrice(s);
-          const history = Array.from({ length: 60 }, () => basePrice + (Math.random() - 0.5) * (s === 'BANKNIFTY' ? 100 : 50));
+          const history = Array.from({ length: 60 }, () => isMarketOpen() ? basePrice + (Math.random() - 0.5) * (s === 'BANKNIFTY' ? 100 : 50) : basePrice);
           this.priceHistory.set(s, history);
           this.latestPrices.set(s, history[history.length - 1]);
         }
@@ -79,6 +97,7 @@ class MarketDataStream extends EventEmitter {
     // Simulates receiving 1-second ticks from a broker WebSocket
     this.streamInterval = setInterval(() => {
       if (!this.isConnected) return;
+      if (!isMarketOpen()) return; // Pause simulated ticks when the market is closed
 
       this.subscriptions.forEach(symbol => {
         // We only simulate the random walk for the underlying indices to save CPU.

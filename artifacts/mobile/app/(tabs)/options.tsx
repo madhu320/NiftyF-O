@@ -97,8 +97,12 @@ export default function OptionsEvaluator() {
         {predictData && (
           <View style={{ backgroundColor: 'white', padding: 20, borderRadius: 12, marginBottom: 16 }}>
             <Text style={{ fontSize: 14, color: '#6b7280' }}>AI Market Prediction</Text>
-            <Text style={{ fontSize: 24, fontWeight: 'bold', color: predictData.prediction === 'call' ? '#166534' : '#991b1b', marginTop: 4 }}>
-              {predictData.prediction === 'call' ? 'BULLISH (CALL)' : 'BEARISH (PUT)'}
+            <Text style={{ 
+              fontSize: 24, 
+              fontWeight: 'bold', 
+              color: predictData.prediction === 'call' ? '#166534' : predictData.prediction === 'put' ? '#991b1b' : '#ca8a04', 
+              marginTop: 4 }}>
+              {predictData.prediction === 'call' ? 'BULLISH (BUY CALL)' : predictData.prediction === 'put' ? 'BEARISH (BUY PUT)' : 'CHOPPY (WAIT/HOLD)'}
             </Text>
             <Text style={{ fontSize: 14, marginTop: 8, color: '#4b5563' }}>Sentiment Score: {predictData.sentiment} / 100</Text>
           </View>

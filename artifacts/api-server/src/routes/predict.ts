@@ -109,16 +109,41 @@ router.get("/predict", async (req, res) => {
       const pcr = calculatePCR(price, 6);
       const atr = calculateATR(highs, lows, closes, 14);
 
-      // Weighted Scoring (Total +/- 45 from 50)
-      const trendScore = price > ema20 ? 15 : -15;           // Trend (Weight: 30%)
-      const momentumScore = (rsi - 50) * 0.5;                // RSI (Weight: 25%)
-      const volScore = price > bb.middle ? 10 : -10;         // Vol/Mean Rev (Weight: 20%)
-      const optionsScore = Math.max(-15, Math.min(15, (pcr - 1.0) * 30)); // Options (Weight: 25%)
+      // Weighted Scoring (Total +/- 50 from base 50)
+      
+      // 1. Trend & Slope (Weight: 35%)
+      let trendScore = 0;
+      const emaBuffer = price * 0.0005; // 0.05% buffer to ignore tiny noise
+      if (price > ema20 + emaBuffer) trendScore += 20;
+      else if (price < ema20 - emaBuffer) trendScore -= 20;
+
+      const ema20_prev = calculateEMA(closes.slice(0, -5), 20); // Slope over last 5 periods
+      if (ema20 > ema20_prev) trendScore += 15;
+      else if (ema20 < ema20_prev) trendScore -= 15;
+
+      // 2. Momentum (Weight: 25%)
+      let momentumScore = 0;
+      if (rsi > 60) momentumScore += 25; // Confirmed bullish momentum
+      else if (rsi < 40) momentumScore -= 25; // Confirmed bearish momentum
+      else momentumScore = (rsi - 50) * 0.5; // Chop zone, dampen score
+
+      // 3. Volatility / Bollinger %B (Weight: 20%)
+      let volScore = 0;
+      const percentB = bb.upper !== bb.lower ? (price - bb.lower) / (bb.upper - bb.lower) : 0.5;
+      if (percentB > 0.8) volScore += 20; // Riding upper band
+      else if (percentB < 0.2) volScore -= 20; // Riding lower band
+      else volScore = (percentB - 0.5) * 10;
+
+      // 4. Options Flow / PCR (Weight: 20%)
+      let optionsScore = 0;
+      if (pcr > 1.2) optionsScore += 20; // Put writing heavily outweighs call writing
+      else if (pcr < 0.8) optionsScore -= 20; // Call writing heavily outweighs
+      else optionsScore = (pcr - 1.0) * 20;
 
       sentiment = 50 + trendScore + momentumScore + volScore + optionsScore;
       
-      // Final filter: If ATR is extremely high (wild spikes), dampen the sentiment
-      const volatilityDampener = atr > (price * 0.005) ? 0.8 : 1.0;
+      // Final filter: If ATR is extremely high (wild volatility spikes), dampen the sentiment drastically to protect capital
+      const volatilityDampener = atr > (price * 0.005) ? 0.5 : 1.0;
       sentiment = 50 + (sentiment - 50) * volatilityDampener;
       
       sentiment = Math.round(Math.max(5, Math.min(95, sentiment)));
@@ -129,7 +154,10 @@ router.get("/predict", async (req, res) => {
       sentiment = Math.round(Math.min(100, Math.max(0, 50 + pctChange * 25)));
     }
 
-    const prediction = sentiment >= 50 ? "call" : "put";
+    // Introduce a "Dead-zone" (40 to 60) where we recommend holding/waiting to avoid false alerts
+    let prediction = "neutral";
+    if (sentiment >= 60) prediction = "call";
+    else if (sentiment <= 40) prediction = "put";
 
     res.json({ prediction, price, sentiment });
   } catch (err) {
