@@ -44,18 +44,34 @@ class MarketDataStream extends EventEmitter {
     this.startMockStream(); // Replace this call with actual broker WebSocket instantiation
   }
 
-  public subscribe(symbols: string[]) {
-    symbols.forEach(s => {
+  private async fetchRealBasePrice(symbol: string): Promise<number> {
+    try {
+      const ticker = symbol === 'BANKNIFTY' ? '%5ENSEBANK' : '%5ENSEI';
+      const res = await fetch(`https://query2.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1m&range=1d`);
+      const data = await res.json() as any;
+      const price = data.chart?.result?.[0]?.meta?.regularMarketPrice;
+      if (price) return price;
+    } catch (e) {
+      logger.warn(`Failed to fetch real base price for ${symbol}, falling back to mock base.`);
+    }
+    return symbol === 'BANKNIFTY' ? 45000 : 21000;
+  }
+
+  public async subscribe(symbols: string[]) {
+    for (const s of symbols) {
       this.subscriptions.add(s);
       if (!this.priceHistory.has(s)) {
-        // Seed historical data so algorithms have moving averages immediately
-        const basePrice = s === 'BANKNIFTY' ? 45000 : 21000;
-        const history = Array.from({ length: 60 }, () => basePrice + (Math.random() - 0.5) * 100);
-        this.priceHistory.set(s, history);
-        this.latestPrices.set(s, history[history.length - 1]);
+        // Only fetch index spot prices from Yahoo. Allow Option contracts to fallback to Black-Scholes.
+        if (s === 'BANKNIFTY' || s === 'NIFTY') {
+          const basePrice = await this.fetchRealBasePrice(s);
+          const history = Array.from({ length: 60 }, () => basePrice + (Math.random() - 0.5) * (s === 'BANKNIFTY' ? 100 : 50));
+          this.priceHistory.set(s, history);
+          this.latestPrices.set(s, history[history.length - 1]);
+        }
+        
         this.latestVolumes.set(s, 0);
       }
-    });
+    }
     logger.info({ symbols }, "Subscribed to live market data symbols");
   }
 

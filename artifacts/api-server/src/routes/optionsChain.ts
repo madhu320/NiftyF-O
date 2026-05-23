@@ -126,7 +126,7 @@ interface ChainCache {
   ts: number;
 }
 let cache: ChainCache | null = null;
-const TTL = 60_000;
+const TTL = 1000; // 1-second cache to strictly match the WebSocket stream tick rate
 
 // ── Route ─────────────────────────────────────────────────────────────────────
 
