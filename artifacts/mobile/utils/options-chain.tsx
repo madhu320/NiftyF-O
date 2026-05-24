@@ -103,9 +103,16 @@ export default function OptionsChainScreen() {
         {data && <Text style={styles.spotPrice}>Bank Nifty: {data.spot.toFixed(2)}</Text>}
       </View>
 
-      <View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.expiryContainer}>
-          {data?.availableExpiries?.map(expiry => (
+      {/* Ensure the container doesn't collapse and handle possible API property name variations */}
+      <View style={{ flexGrow: 0 }}>
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false} 
+          style={{ flexGrow: 0 }}
+          contentContainerStyle={styles.expiryContainer}
+        >
+          {/* Fallbacks to other common property names in case the API returns something else */}
+          {(data?.availableExpiries || (data as any)?.expiries || (data as any)?.expiryDates || []).map((expiry: string) => (
             <TouchableOpacity 
               key={expiry}
               style={[styles.expiryButton, selectedExpiry === expiry && styles.selectedExpiryButton]}
