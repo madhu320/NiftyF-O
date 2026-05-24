@@ -90,15 +90,15 @@ function StrikeCard({
         ) : (
           <>
             <Text style={[styles.greekValue, { color: CALL_COLOR }]}>
-              ₹{row.ce.ltp.toFixed(1)} <Text style={{ fontSize: 10, color: colors.mutedForeground }}>IV: {row.ce.iv?.toFixed(1)}</Text>
+              ₹{row.ce.ltp.toFixed(1)} <Text style={{ fontSize: 10, color: colors.mutedForeground }}>IV: {row.ce.iv?.toFixed(1) ?? "—"}</Text>
             </Text>
             <View style={styles.greekRow}>
-              <Text style={[styles.greekStat, { color: colors.foreground }]}>Δ {row.ce.delta?.toFixed(2)}</Text>
-              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Θ {row.ce.theta?.toFixed(2)}</Text>
+              <Text style={[styles.greekStat, { color: colors.foreground }]}>Δ {row.ce.delta?.toFixed(2) ?? "—"}</Text>
+              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Θ {row.ce.theta?.toFixed(2) ?? "—"}</Text>
             </View>
             <View style={styles.greekRow}>
-              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Γ {row.ce.gamma?.toFixed(4)}</Text>
-              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>ν {row.ce.vega?.toFixed(2)}</Text>
+              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Γ {row.ce.gamma?.toFixed(4) ?? "—"}</Text>
+              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>ν {row.ce.vega?.toFixed(2) ?? "—"}</Text>
             </View>
           </>
         )}
@@ -129,16 +129,16 @@ function StrikeCard({
         ) : (
           <>
             <Text style={[styles.greekValue, { color: PUT_COLOR }]}>
-              <Text style={{ fontSize: 10, color: colors.mutedForeground }}>IV: {row.pe.iv?.toFixed(1)} </Text>
+              <Text style={{ fontSize: 10, color: colors.mutedForeground }}>IV: {row.pe.iv?.toFixed(1) ?? "—"} </Text>
               ₹{row.pe.ltp.toFixed(1)}
             </Text>
             <View style={[styles.greekRow, { justifyContent: 'flex-end' }]}>
-              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Θ {row.pe.theta?.toFixed(2)}</Text>
-              <Text style={[styles.greekStat, { color: colors.foreground }]}>Δ {row.pe.delta?.toFixed(2)}</Text>
+              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Θ {row.pe.theta?.toFixed(2) ?? "—"}</Text>
+              <Text style={[styles.greekStat, { color: colors.foreground }]}>Δ {row.pe.delta?.toFixed(2) ?? "—"}</Text>
             </View>
             <View style={[styles.greekRow, { justifyContent: 'flex-end' }]}>
-              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>ν {row.pe.vega?.toFixed(2)}</Text>
-              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Γ {row.pe.gamma?.toFixed(4)}</Text>
+              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>ν {row.pe.vega?.toFixed(2) ?? "—"}</Text>
+              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Γ {row.pe.gamma?.toFixed(4) ?? "—"}</Text>
             </View>
           </>
         )}
@@ -191,11 +191,13 @@ export default function OptionsScreen() {
     }
   }, [data?.expiry, selectedExpiry]);
 
-  const atm = data ? findATMIndex(data.strikes, data.spot) : -1;
-  const maxOI = data
-    ? Math.max(...data.strikes.flatMap((s) => [s.ce.oi, s.pe.oi]))
+  const strikes = data?.strikes || [];
+  const atm = strikes.length > 0 && data?.spot ? findATMIndex(strikes, data.spot) : -1;
+  const maxOI = strikes.length > 0
+    ? Math.max(...strikes.flatMap((s) => [s.ce?.oi || 0, s.pe?.oi || 0]), 1)
     : 1;
-  const pcr = data ? computePCR(data.strikes) : 0;
+  const pcr = strikes.length > 0 ? computePCR(strikes) : 0;
+  const expiries = data?.availableExpiries?.length ? data.availableExpiries : data?.expiry ? [data.expiry] : [];
 
   const renderItem = useCallback(
     ({ item, index }: { item: StrikeRow; index: number }) => (
@@ -294,16 +296,15 @@ export default function OptionsScreen() {
       ) : (
         <>
           {/* Expiry Tabs */}
-          {/* Fallback to single expiry if backend hasn't been restarted yet */}
-          {(data?.availableExpiries?.length ? data.availableExpiries : data?.expiry ? [data.expiry] : []).length > 0 && (
+          {expiries.length > 0 && (
             <View style={styles.expiryWrapper}>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.expiryContainer}
               >
-                {(data?.availableExpiries?.length ? data.availableExpiries : data?.expiry ? [data.expiry] : []).map((exp: string) => {
-                  const isSelected = (selectedExpiry || data.expiry) === exp;
+                {expiries.map((exp: string) => {
+                  const isSelected = (selectedExpiry || data?.expiry) === exp;
                   return (
                     <TouchableOpacity
                       key={exp}
@@ -363,15 +364,24 @@ export default function OptionsScreen() {
             <Text style={[styles.colLabel, { color: PUT_COLOR, flex: 1, textAlign: "right" }]}>{activeTab === "oi" ? "PUT" : "PE GREEKS"}</Text>
           </View>
 
-          <FlatList
-            data={data?.strikes ?? []}
-            keyExtractor={(item) => String(item.strike)}
-            renderItem={renderItem}
-            contentContainerStyle={[styles.list, { paddingBottom: bottomPad + 24 }]}
-            showsVerticalScrollIndicator={false}
-            initialScrollIndex={atm > 2 ? atm - 2 : 0}
-            getItemLayout={(_, index) => ({ length: 72, offset: 72 * index, index })}
-          />
+          {strikes.length > 0 ? (
+            <FlatList
+              data={strikes}
+              keyExtractor={(item) => String(item.strike)}
+              renderItem={renderItem}
+              contentContainerStyle={[styles.list, { paddingBottom: bottomPad + 24 }]}
+              showsVerticalScrollIndicator={false}
+              initialScrollIndex={atm > 2 ? atm - 2 : 0}
+              getItemLayout={(_, index) => ({ length: 72, offset: 72 * index, index })}
+            />
+          ) : (
+            <View style={[styles.centered, { paddingVertical: 40 }]}>
+              <Feather name="inbox" size={32} color={colors.border} style={{ marginBottom: 8 }} />
+              <Text style={{ color: colors.mutedForeground, fontFamily: "Inter_500Medium" }}>
+                No strikes available for this expiry.
+              </Text>
+            </View>
+          )}
         </>
       )}
     </View>
