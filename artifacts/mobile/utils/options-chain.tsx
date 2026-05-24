@@ -103,25 +103,31 @@ export default function OptionsChainScreen() {
         {data && <Text style={styles.spotPrice}>Bank Nifty: {data.spot.toFixed(2)}</Text>}
       </View>
 
-      {/* Ensure the container doesn't collapse and handle possible API property name variations */}
-      <View style={{ flexGrow: 0 }}>
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false} 
-          style={{ flexGrow: 0 }}
-          contentContainerStyle={styles.expiryContainer}
-        >
-          {/* Fallbacks to other common property names in case the API returns something else */}
-          {(data?.availableExpiries || (data as any)?.expiries || (data as any)?.expiryDates || []).map((expiry: string) => (
-            <TouchableOpacity 
-              key={expiry}
-              style={[styles.expiryButton, selectedExpiry === expiry && styles.selectedExpiryButton]}
-              onPress={() => setSelectedExpiry(expiry)}
+      {/* Wrap with explicit minHeight to prevent ScrollView from collapsing, and check if array exists */}
+      <View style={styles.expiryWrapper}>
+        {(() => {
+          const expiries = data?.availableExpiries || (data as any)?.expiries || (data as any)?.expiryDates || (data as any)?.records?.expiryDates || [];
+          if (expiries.length === 0) {
+            return <Text style={styles.errorText}>No expiry dates received from API.</Text>;
+          }
+          return (
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false} 
+              contentContainerStyle={styles.expiryContainer}
             >
-              <Text style={[styles.expiryText, selectedExpiry === expiry && styles.selectedExpiryText]}>{expiry}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+              {expiries.map((expiry: string) => (
+                <TouchableOpacity 
+                  key={expiry}
+                  style={[styles.expiryButton, selectedExpiry === expiry && styles.selectedExpiryButton]}
+                  onPress={() => setSelectedExpiry(expiry)}
+                >
+                  <Text style={[styles.expiryText, selectedExpiry === expiry && styles.selectedExpiryText]}>{expiry}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          );
+        })()}
       </View>
 
       <View style={styles.tabsContainer}>
@@ -160,6 +166,8 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 16, paddingVertical: 12 },
   title: { fontSize: 24, fontWeight: 'bold', color: 'white' },
   spotPrice: { fontSize: 16, color: '#9ca3af', marginTop: 4 },
+  expiryWrapper: { minHeight: 50, maxHeight: 60, justifyContent: 'center' },
+  errorText: { color: '#f87171', textAlign: 'center', fontSize: 13, paddingVertical: 10 },
   expiryContainer: { paddingHorizontal: 16, paddingVertical: 8 },
   expiryButton: { paddingHorizontal: 16, paddingVertical: 8, backgroundColor: '#374151', borderRadius: 20, marginRight: 8 },
   selectedExpiryButton: { backgroundColor: '#3b82f6' },
