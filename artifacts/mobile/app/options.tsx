@@ -1,9 +1,10 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useState, useEffect } from "react";
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
+  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   Platform,
@@ -61,11 +62,13 @@ function StrikeCard({
   isATM,
   maxOI,
   colors,
+  activeTab,
 }: {
   row: StrikeRow;
   isATM: boolean;
   maxOI: number;
   colors: ReturnType<typeof useColors>;
+  activeTab: "oi" | "greeks";
 }) {
   const bg = isATM ? ATM_COLOR + "15" : colors.card;
   const strikeBorder = isATM ? ATM_COLOR + "66" : colors.border;
@@ -73,14 +76,28 @@ function StrikeCard({
   return (
     <View style={[styles.strikeCard, { backgroundColor: bg, borderColor: strikeBorder }]}>
       {/* CE side */}
-      <View style={styles.legCell}>
-        <Text style={[styles.legLTP, { color: CALL_COLOR }]}>
-          ₹{row.ce.ltp.toFixed(1)}
-        </Text>
-        <Text style={[styles.legOI, { color: colors.mutedForeground }]}>
-          {formatOI(row.ce.oi)}
-        </Text>
-        <OIBar value={row.ce.oi} max={maxOI} color={CALL_COLOR} align="left" />
+      <View style={[styles.legCell, activeTab === "greeks" && { alignItems: "flex-start" }]}>
+        {activeTab === "oi" ? (
+          <>
+            <Text style={[styles.legLTP, { color: CALL_COLOR }]}>
+              ₹{row.ce.ltp.toFixed(1)}
+            </Text>
+            <Text style={[styles.legOI, { color: colors.mutedForeground }]}>
+              {formatOI(row.ce.oi)}
+            </Text>
+            <OIBar value={row.ce.oi} max={maxOI} color={CALL_COLOR} align="left" />
+          </>
+        ) : (
+          <>
+            <Text style={[styles.greekValue, { color: CALL_COLOR }]}>
+              ₹{row.ce.ltp.toFixed(1)} <Text style={{ fontSize: 10, color: colors.mutedForeground }}>IV: {row.ce.iv?.toFixed(1)}</Text>
+            </Text>
+            <View style={styles.greekRow}>
+              <Text style={[styles.greekStat, { color: colors.foreground }]}>Δ {row.ce.delta?.toFixed(2)}</Text>
+              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Θ {row.ce.theta?.toFixed(2)}</Text>
+            </View>
+          </>
+        )}
       </View>
 
       {/* Strike */}
@@ -95,13 +112,28 @@ function StrikeCard({
 
       {/* PE side */}
       <View style={[styles.legCell, styles.legRight]}>
-        <Text style={[styles.legLTP, { color: PUT_COLOR }]}>
-          ₹{row.pe.ltp.toFixed(1)}
-        </Text>
-        <Text style={[styles.legOI, { color: colors.mutedForeground }]}>
-          {formatOI(row.pe.oi)}
-        </Text>
-        <OIBar value={row.pe.oi} max={maxOI} color={PUT_COLOR} align="right" />
+        {activeTab === "oi" ? (
+          <>
+            <Text style={[styles.legLTP, { color: PUT_COLOR }]}>
+              ₹{row.pe.ltp.toFixed(1)}
+            </Text>
+            <Text style={[styles.legOI, { color: colors.mutedForeground }]}>
+              {formatOI(row.pe.oi)}
+            </Text>
+            <OIBar value={row.pe.oi} max={maxOI} color={PUT_COLOR} align="right" />
+          </>
+        ) : (
+          <>
+            <Text style={[styles.greekValue, { color: PUT_COLOR }]}>
+              <Text style={{ fontSize: 10, color: colors.mutedForeground }}>IV: {row.pe.iv?.toFixed(1)} </Text>
+              ₹{row.pe.ltp.toFixed(1)}
+            </Text>
+            <View style={styles.greekRow}>
+              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Θ {row.pe.theta?.toFixed(2)}</Text>
+              <Text style={[styles.greekStat, { color: colors.foreground }]}>Δ {row.pe.delta?.toFixed(2)}</Text>
+            </View>
+          </>
+        )}
       </View>
     </View>
   );
@@ -135,12 +167,21 @@ export default function OptionsScreen() {
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
+  const [selectedExpiry, setSelectedExpiry] = useState<string | undefined>(undefined);
+  const [activeTab, setActiveTab] = useState<"oi" | "greeks">("oi");
+
   const { data, isLoading, isError, error, refetch } = useQuery<OptionsChainData>({
-    queryKey: ["options-chain"],
-    queryFn: fetchOptionsChain,
+    queryKey: ["options-chain", selectedExpiry],
+    queryFn: () => fetchOptionsChain(selectedExpiry),
     refetchInterval: 60000,
     retry: 1,
   });
+
+  useEffect(() => {
+    if (!selectedExpiry && data?.expiry) {
+      setSelectedExpiry(data.expiry);
+    }
+  }, [data?.expiry, selectedExpiry]);
 
   const atm = data ? findATMIndex(data.strikes, data.spot) : -1;
   const maxOI = data
@@ -155,9 +196,10 @@ export default function OptionsScreen() {
         isATM={index === atm}
         maxOI={maxOI}
         colors={colors}
+        activeTab={activeTab}
       />
     ),
-    [atm, maxOI, colors]
+    [atm, maxOI, colors, activeTab]
   );
 
   const is404 = isError && (error as Error)?.message?.includes("404");
@@ -243,6 +285,35 @@ export default function OptionsScreen() {
         </View>
       ) : (
         <>
+          {/* Expiry Tabs */}
+          {data?.availableExpiries && data.availableExpiries.length > 0 && (
+            <View style={styles.expiryWrapper}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.expiryContainer}
+              >
+                {data.availableExpiries.map((exp: string) => {
+                  const isSelected = (selectedExpiry || data.expiry) === exp;
+                  return (
+                    <TouchableOpacity
+                      key={exp}
+                      style={[
+                        styles.expiryTab,
+                        { backgroundColor: isSelected ? colors.primary : colors.secondary }
+                      ]}
+                      onPress={() => setSelectedExpiry(exp)}
+                    >
+                      <Text style={[styles.expiryTabText, { color: isSelected ? "#fff" : colors.foreground }]}>
+                        {exp}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
+
           {/* PCR summary */}
           <View style={{ paddingHorizontal: 16, paddingTop: 14 }}>
             <PCRBadge pcr={pcr} colors={colors} />
@@ -257,6 +328,22 @@ export default function OptionsScreen() {
               </Text>
             </View>
           )}
+
+          {/* View Toggle Tabs */}
+          <View style={[styles.tabsContainer, { backgroundColor: colors.secondary }]}>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === "oi" && { backgroundColor: colors.primary }]}
+              onPress={() => setActiveTab("oi")}
+            >
+              <Text style={[styles.tabText, { color: activeTab === "oi" ? "#fff" : colors.mutedForeground }]}>OI & Price</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === "greeks" && { backgroundColor: colors.primary }]}
+              onPress={() => setActiveTab("greeks")}
+            >
+              <Text style={[styles.tabText, { color: activeTab === "greeks" ? "#fff" : colors.mutedForeground }]}>Greeks & IV</Text>
+            </TouchableOpacity>
+          </View>
 
           {/* Column headers */}
           <View style={styles.colHeader}>
@@ -456,5 +543,52 @@ const styles = StyleSheet.create({
   strikeText: {
     fontSize: 13,
     fontFamily: "Inter_700Bold",
+  },
+  expiryWrapper: {
+    marginTop: 12,
+    minHeight: 40,
+  },
+  expiryContainer: {
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  expiryTab: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  expiryTabText: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+  },
+  tabsContainer: {
+    flexDirection: "row",
+    marginHorizontal: 16,
+    marginTop: 14,
+    borderRadius: 8,
+    padding: 4,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 6,
+    alignItems: "center",
+  },
+  tabText: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+  },
+  greekRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 2,
+  },
+  greekValue: {
+    fontSize: 13,
+    fontFamily: "Inter_700Bold",
+  },
+  greekStat: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
   },
 });
