@@ -96,6 +96,10 @@ function StrikeCard({
               <Text style={[styles.greekStat, { color: colors.foreground }]}>Δ {row.ce.delta?.toFixed(2)}</Text>
               <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Θ {row.ce.theta?.toFixed(2)}</Text>
             </View>
+            <View style={styles.greekRow}>
+              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Γ {row.ce.gamma?.toFixed(4)}</Text>
+              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>ν {row.ce.vega?.toFixed(2)}</Text>
+            </View>
           </>
         )}
       </View>
@@ -128,9 +132,13 @@ function StrikeCard({
               <Text style={{ fontSize: 10, color: colors.mutedForeground }}>IV: {row.pe.iv?.toFixed(1)} </Text>
               ₹{row.pe.ltp.toFixed(1)}
             </Text>
-            <View style={styles.greekRow}>
+            <View style={[styles.greekRow, { justifyContent: 'flex-end' }]}>
               <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Θ {row.pe.theta?.toFixed(2)}</Text>
               <Text style={[styles.greekStat, { color: colors.foreground }]}>Δ {row.pe.delta?.toFixed(2)}</Text>
+            </View>
+            <View style={[styles.greekRow, { justifyContent: 'flex-end' }]}>
+              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>ν {row.pe.vega?.toFixed(2)}</Text>
+              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Γ {row.pe.gamma?.toFixed(4)}</Text>
             </View>
           </>
         )}
@@ -286,14 +294,15 @@ export default function OptionsScreen() {
       ) : (
         <>
           {/* Expiry Tabs */}
-          {data?.availableExpiries && data.availableExpiries.length > 0 && (
+          {/* Fallback to single expiry if backend hasn't been restarted yet */}
+          {(data?.availableExpiries?.length ? data.availableExpiries : data?.expiry ? [data.expiry] : []).length > 0 && (
             <View style={styles.expiryWrapper}>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.expiryContainer}
               >
-                {data.availableExpiries.map((exp: string) => {
+                {(data?.availableExpiries?.length ? data.availableExpiries : data?.expiry ? [data.expiry] : []).map((exp: string) => {
                   const isSelected = (selectedExpiry || data.expiry) === exp;
                   return (
                     <TouchableOpacity
@@ -347,11 +356,11 @@ export default function OptionsScreen() {
 
           {/* Column headers */}
           <View style={styles.colHeader}>
-            <Text style={[styles.colLabel, { color: CALL_COLOR, flex: 1 }]}>CALL</Text>
+            <Text style={[styles.colLabel, { color: CALL_COLOR, flex: 1 }]}>{activeTab === "oi" ? "CALL" : "CE GREEKS"}</Text>
             <Text style={[styles.colLabel, { color: colors.mutedForeground, width: 80, textAlign: "center" }]}>
               STRIKE
             </Text>
-            <Text style={[styles.colLabel, { color: PUT_COLOR, flex: 1, textAlign: "right" }]}>PUT</Text>
+            <Text style={[styles.colLabel, { color: PUT_COLOR, flex: 1, textAlign: "right" }]}>{activeTab === "oi" ? "PUT" : "PE GREEKS"}</Text>
           </View>
 
           <FlatList
