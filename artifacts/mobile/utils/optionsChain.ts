@@ -32,7 +32,8 @@ export interface OptionsChainData {
   theoretical?: boolean; // true when prices are Black-Scholes estimates
 }
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || (Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000');
+// Point to the local Node.js server running on port 5000 (10.0.2.2 is used by Android Emulators to access localhost)
+const API_URL = process.env.EXPO_PUBLIC_API_URL || (Platform.OS === 'android' ? 'http://10.0.2.2:5000/api' : 'http://localhost:5000/api');
 
 export async function fetchOptionsChain(expiry?: string): Promise<OptionsChainData> {
   const url = new URL(`${API_URL}/options-chain`);
