@@ -40,9 +40,19 @@ async function fetchEnhancedMarketData() {
     const momentum = calculateMomentum(bankNiftyPrices);
 
     // Calculate spread for statistical arbitrage
-    const spread = currentBankNifty - currentNifty * 1.2; // Bank Nifty beta ~1.2
+    // FIX: Calculate DYNAMIC beta instead of hardcoded 1.2
+    const calculateDynamicBeta = (bnPrices: number[], nPrices: number[]): number => {
+      if (bnPrices.length < 10 || nPrices.length < 10) return 1.2; // Fallback during warmup
+      const recentBN = bnPrices.slice(-20);
+      const recentN = nPrices.slice(-20);
+      const bnChange = (recentBN[recentBN.length - 1] - recentBN[0]) / recentBN[0];
+      const nChange = (recentN[recentN.length - 1] - recentN[0]) / recentN[0];
+      return nChange !== 0 ? bnChange / nChange : 1.2;
+    };
+    const beta = calculateDynamicBeta(bankNiftyPrices, niftyPrices);
+    const spread = currentBankNifty - currentNifty * beta;
     const spreadHistory = bankNiftyPrices.map((b: number, i: number) =>
-      b - (niftyPrices[i] || currentNifty) * 1.2
+      b - (niftyPrices[i] || currentNifty) * beta
     ).slice(-50);
     const spreadMA = spreadHistory.length > 0 ? spreadHistory.reduce((a: number, b: number) => a + b, 0) / spreadHistory.length : 0;
     const spreadStd = spreadHistory.length > 0 ? Math.sqrt(

@@ -72,11 +72,13 @@ function StrikeCard({
 }) {
   const bg = isATM ? ATM_COLOR + "15" : colors.card;
   const strikeBorder = isATM ? ATM_COLOR + "66" : colors.border;
+  // FIX: Dynamic card height based on tab - greeks needs 100px, OI needs 66px
+  const cardHeight = activeTab === "greeks" ? 100 : 66;
 
   return (
-    <View style={[styles.strikeCard, { backgroundColor: bg, borderColor: strikeBorder }]}>
+    <View style={[styles.strikeCard, { backgroundColor: bg, borderColor: strikeBorder, height: cardHeight }]}>
       {/* CE side */}
-      <View style={[styles.legCell, activeTab === "greeks" && { alignItems: "flex-start" }]}>
+      <View style={[styles.legCell, activeTab === "greeks" && { justifyContent: "space-between" }]}>
         {activeTab === "oi" ? (
           <>
             <Text style={[styles.legLTP, { color: CALL_COLOR }]}>
@@ -88,9 +90,12 @@ function StrikeCard({
             <OIBar value={row.ce.oi} max={maxOI} color={CALL_COLOR} align="left" />
           </>
         ) : (
-          <>
+          <View style={{ flex: 1, justifyContent: "space-between" }}>
             <Text style={[styles.greekValue, { color: CALL_COLOR }]}>
-              ₹{row.ce.ltp.toFixed(1)} <Text style={{ fontSize: 10, color: colors.mutedForeground }}>IV: {row.ce.iv?.toFixed(1) ?? "—"}</Text>
+              ₹{row.ce.ltp.toFixed(1)}
+            </Text>
+            <Text style={[styles.greekIV, { color: colors.mutedForeground }]}>
+              IV: {row.ce.iv?.toFixed(1) ?? "—"}
             </Text>
             <View style={styles.greekRow}>
               <Text style={[styles.greekStat, { color: colors.foreground }]}>Δ {row.ce.delta?.toFixed(2) ?? "—"}</Text>
@@ -100,7 +105,7 @@ function StrikeCard({
               <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Γ {row.ce.gamma?.toFixed(4) ?? "—"}</Text>
               <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>ν {row.ce.vega?.toFixed(2) ?? "—"}</Text>
             </View>
-          </>
+          </View>
         )}
       </View>
 
@@ -115,7 +120,7 @@ function StrikeCard({
       </View>
 
       {/* PE side */}
-      <View style={[styles.legCell, styles.legRight]}>
+      <View style={[styles.legCell, styles.legRight, activeTab === "greeks" && { justifyContent: "space-between" }]}>
         {activeTab === "oi" ? (
           <>
             <Text style={[styles.legLTP, { color: PUT_COLOR }]}>
@@ -127,10 +132,12 @@ function StrikeCard({
             <OIBar value={row.pe.oi} max={maxOI} color={PUT_COLOR} align="right" />
           </>
         ) : (
-          <>
+          <View style={{ flex: 1, justifyContent: "space-between" }}>
             <Text style={[styles.greekValue, { color: PUT_COLOR }]}>
-              <Text style={{ fontSize: 10, color: colors.mutedForeground }}>IV: {row.pe.iv?.toFixed(1) ?? "—"} </Text>
               ₹{row.pe.ltp.toFixed(1)}
+            </Text>
+            <Text style={[styles.greekIV, { color: colors.mutedForeground }]}>
+              IV: {row.pe.iv?.toFixed(1) ?? "—"}
             </Text>
             <View style={[styles.greekRow, { justifyContent: 'flex-end' }]}>
               <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Θ {row.pe.theta?.toFixed(2) ?? "—"}</Text>
@@ -140,7 +147,7 @@ function StrikeCard({
               <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>ν {row.pe.vega?.toFixed(2) ?? "—"}</Text>
               <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Γ {row.pe.gamma?.toFixed(4) ?? "—"}</Text>
             </View>
-          </>
+          </View>
         )}
       </View>
     </View>
@@ -372,7 +379,13 @@ export default function OptionsScreen() {
               contentContainerStyle={[styles.list, { paddingBottom: bottomPad + 24 }]}
               showsVerticalScrollIndicator={false}
               initialScrollIndex={atm > 2 ? atm - 2 : 0}
-              getItemLayout={(_, index) => ({ length: 72, offset: 72 * index, index })}
+              // FIX: Dynamic height based on active tab (greeks=100px, oi=66px) plus gap=6px
+              getItemLayout={(_, index) => {
+                const itemHeight = activeTab === "greeks" ? 100 : 66;
+                const gap = 6;
+                const totalHeight = itemHeight + gap;
+                return { length: totalHeight, offset: totalHeight * index, index };
+              }}
             />
           ) : (
             <View style={[styles.centered, { paddingVertical: 40 }]}>
@@ -519,7 +532,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingVertical: 10,
     paddingHorizontal: 10,
-    height: 66,
     marginBottom: 6,
   },
   legCell: {
@@ -605,6 +617,11 @@ const styles = StyleSheet.create({
   greekValue: {
     fontSize: 13,
     fontFamily: "Inter_700Bold",
+  },
+  greekIV: {
+    fontSize: 10,
+    fontFamily: "Inter_500Medium",
+    marginVertical: 1,
   },
   greekStat: {
     fontSize: 11,

@@ -67,13 +67,16 @@ function seededRand(seed: number): () => number {
 }
 
 function getSimulatedOI(strike: number, spot: number, type: "ce" | "pe"): number {
+  // FIX: Add bounds checking and reduce randomness for more stable predictions
   const rand = seededRand(strike + (type === "ce" ? 0 : 999_999));
-  const noise = 0.8 + rand() * 0.4;
+  const noise = 0.9 + rand() * 0.2; // Reduced noise from 0.8-1.2 to 0.9-1.1
   const offset = (strike - spot) / spot;
   const peakOffset = type === "ce" ? 0.01 : -0.01;
   const dist = Math.abs(offset - peakOffset);
-  const oi = 4_000_000 * Math.exp(-60 * dist * dist) * noise;
-  return oi;
+  let oi = 4_000_000 * Math.exp(-60 * dist * dist) * noise;
+  // Ensure OI is within realistic bounds
+  oi = Math.min(20_000_000, Math.max(100_000, oi));
+  return Math.round(oi / 1000) * 1000; // Round to nearest 1000
 }
 
 function calculatePCR(spot: number, range: number = 6): number {

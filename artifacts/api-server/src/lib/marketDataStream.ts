@@ -82,9 +82,19 @@ class MarketDataStream extends EventEmitter {
         // Only fetch index spot prices from Yahoo. Allow Option contracts to fallback to Black-Scholes.
         if (s === 'BANKNIFTY' || s === 'NIFTY') {
           const basePrice = await this.fetchRealBasePrice(s);
-          const history = Array.from({ length: 60 }, () => isMarketOpen() ? basePrice + (Math.random() - 0.5) * (s === 'BANKNIFTY' ? 100 : 50) : basePrice);
+          // FIX: Remove hardcoded ±50 variation. Use realistic ±0.2% intraday movement
+          const dailyVolatility = 0.002; // 0.2% typical intraday movement
+          const history = Array.from({ length: 60 }, () => {
+            if (!isMarketOpen()) return basePrice;
+            const randomWalk = (Math.random() - 0.5) * basePrice * dailyVolatility;
+            return Math.round(basePrice + randomWalk);
+          });
           this.priceHistory.set(s, history);
           this.latestPrices.set(s, history[history.length - 1]);
+        }
+
+        if (!this.priceHistory.has(s)) {
+          this.priceHistory.set(s, [this.latestPrices.get(s) ?? 0]);
         }
         
         this.latestVolumes.set(s, 0);
@@ -103,7 +113,7 @@ class MarketDataStream extends EventEmitter {
         // We only simulate the random walk for the underlying indices to save CPU.
         // In production, real broker ticks will overwrite all symbols (including options) here.
         if (symbol === 'BANKNIFTY' || symbol === 'NIFTY') {
-          const currentPrice = this.latestPrices.get(symbol)!;
+          const currentPrice = this.latestPrices.get(symbol) ?? 0;
           const change = (Math.random() - 0.5) * (symbol === 'BANKNIFTY' ? 10 : 5);
           const newPrice = currentPrice + change;
           const volume = Math.floor(Math.random() * 1000);
@@ -111,7 +121,11 @@ class MarketDataStream extends EventEmitter {
           this.latestPrices.set(symbol, newPrice);
           this.latestVolumes.set(symbol, volume);
           
-          const history = this.priceHistory.get(symbol)!;
+          let history = this.priceHistory.get(symbol);
+          if (!history) {
+            history = [currentPrice];
+            this.priceHistory.set(symbol, history);
+          }
           history.push(newPrice);
           if (history.length > 60) history.shift(); // Keep last 60 minutes for MAs/RSI
 
