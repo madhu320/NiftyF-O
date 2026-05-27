@@ -27,7 +27,13 @@ import { RENDER_API_URL, ZERODHA_KITE_URL } from "@/constants/config";
 interface PredictionData {
   prediction: string;
   price: number;
-  sentiment: number;
+  sentiment?: number;
+  blendedScore?: number;
+  modelScore?: number;
+  ruleScore?: number;
+  modelPrediction?: string;
+  modelConfidence?: number;
+  tradeSignal?: string;
 }
 
 async function fetchPrediction(): Promise<PredictionData> {
@@ -204,9 +210,11 @@ export default function DashboardScreen() {
     await Linking.openURL(ZERODHA_KITE_URL);
   }, [scaleAnim]);
 
-  const isCall = data?.prediction?.toLowerCase() === "call";
-  const predictionColor = isCall ? "#22C55E" : "#EF4444";
-  const predictionIcon = isCall ? "trending-up" : "trending-down";
+  const isCall = data?.tradeSignal === "BUY" || data?.prediction?.toLowerCase() === "call";
+  const isSell = data?.tradeSignal === "SELL" || data?.prediction?.toLowerCase() === "put";
+  const predictionColor = isCall ? "#22C55E" : isSell ? "#EF4444" : "#F59E0B";
+  const predictionIcon = isCall ? "trending-up" : isSell ? "trending-down" : "minus";
+  const blendedScore = data?.blendedScore ?? data?.sentiment ?? 50;
   const lastUpdated = dataUpdatedAt
     ? new Date(dataUpdatedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
     : null;
@@ -361,9 +369,24 @@ export default function DashboardScreen() {
               </View>
               <View style={[styles.predictionBadge, { backgroundColor: predictionColor + "22" }]}>
                 <Text style={[styles.predictionBadgeText, { color: predictionColor }]}>
-                  {isCall ? "▲ Buy Call Option" : "▼ Buy Put Option"}
+                  {isCall ? "▲ Buy Call Option" : isSell ? "▼ Buy Put Option" : "○ Hold / Wait"}
                 </Text>
               </View>
+              <View style={{ marginTop: 14 }}>
+                <Text style={[styles.cardLabel, { color: colors.mutedForeground }]}>Blended Score</Text>
+                <Text style={[styles.predictionText, { color: predictionColor, marginTop: 4 }]}> {blendedScore?.toFixed?.(0) ?? "—"} / 100</Text>
+                <Text style={[styles.cardLabel, { color: colors.mutedForeground, marginTop: 8 }]}>Model</Text>
+                <Text style={[styles.priceSubtext, { color: colors.foreground }]}>Prediction: {data?.modelPrediction ?? "—"}</Text>
+                <Text style={[styles.priceSubtext, { color: colors.mutedForeground }]}>Confidence: {data?.modelConfidence?.toFixed?.(1) ?? "0"}%</Text>
+                <Text style={[styles.priceSubtext, { color: colors.mutedForeground }]}>Rule Score: {data?.ruleScore ?? "—"} / 100</Text>
+                <Text style={[styles.priceSubtext, { color: colors.mutedForeground }]}>Model Score: {data?.modelScore ?? "—"} / 100</Text>
+              </View>
+            </View>
+
+            <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, marginBottom: 16 }]}> 
+              <Text style={[styles.cardLabel, { color: colors.mutedForeground }]}>Prediction Blend</Text>
+              <Text style={[styles.priceText, { color: colors.foreground, marginTop: 8 }]}>60% rule-based + 40% Python XGBoost</Text>
+              <Text style={[styles.priceSubtext, { color: colors.mutedForeground, marginTop: 10 }]}>The app combines Alice Blue technical rules with a Python ML model score to generate the final signal.</Text>
             </View>
 
             {/* Price Card */}
@@ -444,6 +467,24 @@ export default function DashboardScreen() {
               <Text style={[styles.optionsBtnTitle, { color: colors.foreground }]}>Options Chain</Text>
               <Text style={[styles.optionsBtnSub, { color: colors.mutedForeground }]}>
                 OI · LTP · PCR · Strikes
+              </Text>
+            </View>
+          </View>
+          <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+        </TouchableOpacity>
+
+        {/* Alice Blue Live Data Entry */}
+        <TouchableOpacity
+          style={[styles.optionsBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+          onPress={() => router.push("/alice-blue")}
+          activeOpacity={0.75}
+        >
+          <View style={styles.optionsBtnLeft}>
+            <MaterialCommunityIcons name="chart-line" size={20} color="#3B82F6" />
+            <View>
+              <Text style={[styles.optionsBtnTitle, { color: colors.foreground }]}>Alice Blue Live</Text>
+              <Text style={[styles.optionsBtnSub, { color: colors.mutedForeground }]}>
+                Positions · Market Data
               </Text>
             </View>
           </View>

@@ -82,28 +82,28 @@ function StrikeCard({
         {activeTab === "oi" ? (
           <>
             <Text style={[styles.legLTP, { color: CALL_COLOR }]}>
-              ₹{row.ce.ltp.toFixed(1)}
+              ₹{(row.ce?.ltp ?? 0).toFixed(1)}
             </Text>
             <Text style={[styles.legOI, { color: colors.mutedForeground }]}>
-              {formatOI(row.ce.oi)}
+              {formatOI(row.ce?.oi ?? 0)}
             </Text>
-            <OIBar value={row.ce.oi} max={maxOI} color={CALL_COLOR} align="left" />
+            <OIBar value={row.ce?.oi ?? 0} max={maxOI} color={CALL_COLOR} align="left" />
           </>
         ) : (
           <View style={{ flex: 1, justifyContent: "space-between" }}>
             <Text style={[styles.greekValue, { color: CALL_COLOR }]}>
-              ₹{row.ce.ltp.toFixed(1)}
+              ₹{(row.ce?.ltp ?? 0).toFixed(1)}
             </Text>
             <Text style={[styles.greekIV, { color: colors.mutedForeground }]}>
-              IV: {row.ce.iv?.toFixed(1) ?? "—"}
+              IV: {row.ce?.iv?.toFixed(1) ?? "—"}
             </Text>
             <View style={styles.greekRow}>
-              <Text style={[styles.greekStat, { color: colors.foreground }]}>Δ {row.ce.delta?.toFixed(2) ?? "—"}</Text>
-              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Θ {row.ce.theta?.toFixed(2) ?? "—"}</Text>
+              <Text style={[styles.greekStat, { color: colors.foreground }]}>Δ {row.ce?.delta?.toFixed(2) ?? "—"}</Text>
+              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Θ {row.ce?.theta?.toFixed(2) ?? "—"}</Text>
             </View>
             <View style={styles.greekRow}>
-              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Γ {row.ce.gamma?.toFixed(4) ?? "—"}</Text>
-              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>ν {row.ce.vega?.toFixed(2) ?? "—"}</Text>
+              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Γ {row.ce?.gamma?.toFixed(4) ?? "—"}</Text>
+              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>ν {row.ce?.vega?.toFixed(2) ?? "—"}</Text>
             </View>
           </View>
         )}
@@ -124,28 +124,28 @@ function StrikeCard({
         {activeTab === "oi" ? (
           <>
             <Text style={[styles.legLTP, { color: PUT_COLOR }]}>
-              ₹{row.pe.ltp.toFixed(1)}
+              ₹{(row.pe?.ltp ?? 0).toFixed(1)}
             </Text>
             <Text style={[styles.legOI, { color: colors.mutedForeground }]}>
-              {formatOI(row.pe.oi)}
+              {formatOI(row.pe?.oi ?? 0)}
             </Text>
-            <OIBar value={row.pe.oi} max={maxOI} color={PUT_COLOR} align="right" />
+            <OIBar value={row.pe?.oi ?? 0} max={maxOI} color={PUT_COLOR} align="right" />
           </>
         ) : (
           <View style={{ flex: 1, justifyContent: "space-between" }}>
             <Text style={[styles.greekValue, { color: PUT_COLOR }]}>
-              ₹{row.pe.ltp.toFixed(1)}
+              ₹{(row.pe?.ltp ?? 0).toFixed(1)}
             </Text>
             <Text style={[styles.greekIV, { color: colors.mutedForeground }]}>
-              IV: {row.pe.iv?.toFixed(1) ?? "—"}
+              IV: {row.pe?.iv?.toFixed(1) ?? "—"}
             </Text>
             <View style={[styles.greekRow, { justifyContent: 'flex-end' }]}>
-              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Θ {row.pe.theta?.toFixed(2) ?? "—"}</Text>
-              <Text style={[styles.greekStat, { color: colors.foreground }]}>Δ {row.pe.delta?.toFixed(2) ?? "—"}</Text>
+              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Θ {row.pe?.theta?.toFixed(2) ?? "—"}</Text>
+              <Text style={[styles.greekStat, { color: colors.foreground }]}>Δ {row.pe?.delta?.toFixed(2) ?? "—"}</Text>
             </View>
             <View style={[styles.greekRow, { justifyContent: 'flex-end' }]}>
-              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>ν {row.pe.vega?.toFixed(2) ?? "—"}</Text>
-              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Γ {row.pe.gamma?.toFixed(4) ?? "—"}</Text>
+              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>ν {row.pe?.vega?.toFixed(2) ?? "—"}</Text>
+              <Text style={[styles.greekStat, { color: colors.mutedForeground }]}>Γ {row.pe?.gamma?.toFixed(4) ?? "—"}</Text>
             </View>
           </View>
         )}
@@ -162,7 +162,7 @@ function PCRBadge({ pcr, colors }: { pcr: number; colors: ReturnType<typeof useC
       <View>
         <Text style={[styles.pcrLabel, { color: colors.mutedForeground }]}>Put-Call Ratio (OI)</Text>
         <Text style={[styles.pcrValue, { color }]}>
-          {pcr.toFixed(2)}
+          {(pcr ?? 0).toFixed(2)}
           <Text style={[styles.pcrSentiment, { color }]}> · {label}</Text>
         </Text>
       </View>

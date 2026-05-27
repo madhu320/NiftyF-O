@@ -40,6 +40,7 @@ function RootLayoutNav() {
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="history" options={{ headerShown: false }} />
       <Stack.Screen name="options" options={{ headerShown: false }} />
+      <Stack.Screen name="alice-blue" options={{ headerShown: false }} />
     </Stack>
   );
 }

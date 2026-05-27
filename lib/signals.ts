@@ -20,11 +20,11 @@ export class SignalEngine {
    * Analyzes the real-time options chain and generates a directional signal.
    */
   async generateSignal(symbol: string = 'BANKNIFTY'): Promise<Signal> {
-    const chainData = await this.nseApi.getOptionsChain(symbol);
+    const chainData: any = await this.nseApi.getOptionsChain(symbol);
     
     // Extract raw NSE data points
-    const records = chainData.records?.data || [];
-    const spotPrice = chainData.records?.underlyingValue;
+    const records = chainData?.records?.data || [];
+    const spotPrice = chainData?.records?.underlyingValue;
     
     if (!records.length || !spotPrice) {
       throw new Error('Invalid options chain data received from NSE');

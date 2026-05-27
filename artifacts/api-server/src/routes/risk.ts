@@ -227,7 +227,7 @@ router.post("/position/update", async (req, res) => {
 
   logger.info({ symbol, quantity, price, side }, "Position updated in database");
   const updatedPortfolio = await getPortfolio();
-  res.json({ success: true, positions: updatedPortfolio });
+  return res.json({ success: true, positions: updatedPortfolio });
 });
 
 // Validate trade against risk limits
@@ -263,7 +263,7 @@ router.put("/risk-limits", (req, res) => {
   Object.assign(riskLimits, updates);
 
   logger.info({ updates }, "Risk limits updated");
-  res.json({
+  return res.json({
     success: true,
     riskLimits,
     message: "Risk limits updated successfully"

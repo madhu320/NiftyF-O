@@ -10,6 +10,36 @@
  * 3. Use the encryption utility: lib/db/src/encryption.ts
  */
 
+try {
+  // Safely load dotenv only in Node.js backend environments
+  if (typeof process !== "undefined" && process.versions && process.versions.node) {
+    const dotenv = require("dotenv");
+    const path = require("path");
+    const fs = require("fs");
+
+    // Search multiple locations because __dirname changes when TypeScript compiles to /dist
+    const envPaths = [
+      path.resolve(process.cwd(), ".env"),
+      path.resolve(process.cwd(), ".env.local"),
+      path.resolve(process.cwd(), "../../../.env"),
+      path.resolve(process.cwd(), "../../../.env.local"),
+      path.resolve(__dirname, "../.env"),
+      path.resolve(__dirname, "../.env.local"),
+      path.resolve(__dirname, "../../../.env"),
+      path.resolve(__dirname, "../../../.env.local"),
+    ];
+
+    for (const envPath of envPaths) {
+      if (fs.existsSync(envPath)) {
+        dotenv.config({ path: envPath });
+        console.log(`✅ Loaded environment variables from: ${envPath}`);
+      }
+    }
+  }
+} catch (error) {
+  console.error("⚠️ Failed to load dotenv:", error);
+}
+
 /**
  * ALICE BLUE (ANT) - Indian Broker
  * Signup: https://www.aliceblueonline.com/
@@ -20,6 +50,7 @@ export const ALICE_CONFIG = {
   apiSecret: process.env.ALICE_API_SECRET || "YOUR_ALICE_API_SECRET",
   userId: process.env.ALICE_USER_ID || "YOUR_ALICE_USER_ID",
   password: process.env.ALICE_PASSWORD || "YOUR_ALICE_PASSWORD", // For 2FA if needed
+  frontendRedirectUrl: process.env.ALICE_FRONTEND_REDIRECT_URL || "http://localhost:5000",
   enabled: process.env.ALICE_ENABLED === "true" || false,
 };
 

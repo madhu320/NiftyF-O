@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Platform } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Platform, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 // Prioritize Expo environment variable (for Render), fallback to local development IPs
@@ -10,6 +10,9 @@ export default function OptionsEvaluator() {
   const [predictData, setPredictData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [executing, setExecuting] = useState(false);
+  const [investmentAmount, setInvestmentAmount] = useState('50000');
+  const [takeProfitPercentage, setTakeProfitPercentage] = useState('50');
+  const [stopLossPercentage, setStopLossPercentage] = useState('30');
 
   const fetchMarketSignals = async () => {
     try {
@@ -46,8 +49,9 @@ export default function OptionsEvaluator() {
             action: data.aggregatedSignal.action,
             price: data.marketData.bankNifty
           },
-          positionSize: data.positionSize || 0.05,
-          riskMultiplier: 1.0
+          investmentAmount: Number(investmentAmount),
+          takeProfitPercentage: Number(takeProfitPercentage),
+          stopLossPercentage: Number(stopLossPercentage),
         })
       });
       const result = await res.json();
@@ -72,6 +76,10 @@ export default function OptionsEvaluator() {
   const agg = data?.aggregatedSignal;
   const isBullish = agg?.action === 'BUY';
   const isBearish = agg?.action === 'SELL';
+  const isModelBuy = predictData?.tradeSignal === 'BUY' || predictData?.prediction === 'call';
+  const isModelSell = predictData?.tradeSignal === 'SELL' || predictData?.prediction === 'put';
+  const blendedScore = predictData?.blendedScore ?? predictData?.sentiment ?? predictData?.ruleScore ?? 0;
+  const modelConfidence = predictData?.modelConfidence ?? 0;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#f3f4f6' }}>
@@ -104,7 +112,11 @@ export default function OptionsEvaluator() {
               marginTop: 4 }}>
               {predictData.prediction === 'call' ? 'BULLISH (BUY CALL)' : predictData.prediction === 'put' ? 'BEARISH (BUY PUT)' : 'CHOPPY (WAIT/HOLD)'}
             </Text>
-            <Text style={{ fontSize: 14, marginTop: 8, color: '#4b5563' }}>Sentiment Score: {predictData.sentiment} / 100</Text>
+            <Text style={{ fontSize: 14, marginTop: 8, color: '#4b5563' }}>Blended Score: {blendedScore?.toFixed?.(0) ?? '—'} / 100</Text>
+            <Text style={{ fontSize: 14, marginTop: 8, color: '#4b5563' }}>Rule Score: {predictData.ruleScore ?? '—'} / 100</Text>
+            <Text style={{ fontSize: 14, marginTop: 4, color: '#4b5563' }}>Model Score: {predictData.modelScore ?? '—'} / 100</Text>
+            <Text style={{ fontSize: 14, marginTop: 4, color: '#4b5563' }}>Model Prediction: {predictData.modelPrediction ?? '—'}</Text>
+            <Text style={{ fontSize: 14, marginTop: 4, color: '#4b5563' }}>Model Confidence: {modelConfidence?.toFixed?.(1) ?? '0'}%</Text>
           </View>
         )}
 
@@ -120,6 +132,64 @@ export default function OptionsEvaluator() {
             {agg?.reasoning?.map((reason: string, idx: number) => (
               <Text key={idx} style={{ fontSize: 13, marginBottom: 2 }}>• {reason}</Text>
             ))}
+          </View>
+        </View>
+
+        <View style={{ backgroundColor: 'white', padding: 20, borderRadius: 12, marginBottom: 20 }}>
+          <Text style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 12 }}>Trade Execution Settings</Text>
+
+          <View style={{ marginBottom: 12 }}>
+            <Text style={{ marginBottom: 6, color: '#4b5563' }}>Investment Amount</Text>
+            <TextInput
+              value={investmentAmount}
+              onChangeText={setInvestmentAmount}
+              keyboardType='numeric'
+              placeholder='50000'
+              style={{
+                borderWidth: 1,
+                borderColor: '#d1d5db',
+                borderRadius: 10,
+                padding: 12,
+                fontSize: 16,
+                backgroundColor: '#f9fafb'
+              }}
+            />
+          </View>
+
+          <View style={{ marginBottom: 12 }}>
+            <Text style={{ marginBottom: 6, color: '#4b5563' }}>Take Profit (%)</Text>
+            <TextInput
+              value={takeProfitPercentage}
+              onChangeText={setTakeProfitPercentage}
+              keyboardType='numeric'
+              placeholder='50'
+              style={{
+                borderWidth: 1,
+                borderColor: '#d1d5db',
+                borderRadius: 10,
+                padding: 12,
+                fontSize: 16,
+                backgroundColor: '#f9fafb'
+              }}
+            />
+          </View>
+
+          <View>
+            <Text style={{ marginBottom: 6, color: '#4b5563' }}>Stop Loss (%)</Text>
+            <TextInput
+              value={stopLossPercentage}
+              onChangeText={setStopLossPercentage}
+              keyboardType='numeric'
+              placeholder='30'
+              style={{
+                borderWidth: 1,
+                borderColor: '#d1d5db',
+                borderRadius: 10,
+                padding: 12,
+                fontSize: 16,
+                backgroundColor: '#f9fafb'
+              }}
+            />
           </View>
         </View>
 

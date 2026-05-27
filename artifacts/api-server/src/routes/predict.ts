@@ -1,10 +1,17 @@
 import { Router, type IRouter } from "express";
 import { logger } from "../lib/logger";
-import { marketStream } from "../lib/marketDataStream";
+import { getAntInstance } from "../../../../lib/ant";
+import { ALICE_CONFIG } from "../../../../lib/broker-config";
 
 const router: IRouter = Router();
 
-// ── Math Helpers ──────────────────────────────────────────────────────────────
+declare const fetch: any;
+
+interface PythonModelResult {
+  model_score: number;
+  model_prediction: string;
+  confidence: number;
+}
 
 function calculateEMA(prices: number[], period: number): number {
   const k = 2 / (period + 1);
@@ -25,7 +32,7 @@ function calculateRSI(prices: number[], period: number = 14): number {
     else losses -= diff;
   }
   if (losses === 0) return 100;
-  const rs = (gains / period) / (losses / period);
+  const rs = gains / losses;
   return 100 - 100 / (1 + rs);
 }
 
@@ -46,14 +53,15 @@ function calculateATR(highs: number[], lows: number[], closes: number[], period:
   if (closes.length <= period) return 0;
   let trSum = 0;
   for (let i = 1; i < closes.length; i++) {
-    const tr = Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1]));
+    const tr = Math.max(
+      highs[i] - lows[i],
+      Math.abs(highs[i] - closes[i - 1]),
+      Math.abs(lows[i] - closes[i - 1]),
+    );
     trSum += tr;
   }
-  const slice = closes.slice(-period);
   return trSum / (closes.length - 1);
 }
-
-// ── Mock Option Chain Helpers (Simulated) ────────────────────────────────────
 
 function seededRand(seed: number): () => number {
   let s = seed >>> 0;
@@ -67,16 +75,14 @@ function seededRand(seed: number): () => number {
 }
 
 function getSimulatedOI(strike: number, spot: number, type: "ce" | "pe"): number {
-  // FIX: Add bounds checking and reduce randomness for more stable predictions
   const rand = seededRand(strike + (type === "ce" ? 0 : 999_999));
-  const noise = 0.9 + rand() * 0.2; // Reduced noise from 0.8-1.2 to 0.9-1.1
+  const noise = 0.9 + rand() * 0.2;
   const offset = (strike - spot) / spot;
   const peakOffset = type === "ce" ? 0.01 : -0.01;
   const dist = Math.abs(offset - peakOffset);
   let oi = 4_000_000 * Math.exp(-60 * dist * dist) * noise;
-  // Ensure OI is within realistic bounds
   oi = Math.min(20_000_000, Math.max(100_000, oi));
-  return Math.round(oi / 1000) * 1000; // Round to nearest 1000
+  return Math.round(oi / 1000) * 1000;
 }
 
 function calculatePCR(spot: number, range: number = 6): number {
@@ -88,81 +94,180 @@ function calculatePCR(spot: number, range: number = 6): number {
     callOI += getSimulatedOI(strike, spot, "ce");
     putOI += getSimulatedOI(strike, spot, "pe");
   }
-  return putOI / callOI;
+  return callOI > 0 ? putOI / callOI : 1.0;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function buildRuleScore(metrics: {
+  price: number;
+  ema20: number;
+  ema20Prev: number;
+  rsi: number;
+  percentB: number;
+  pcr: number;
+  atr: number;
+}): { score: number; components: Record<string, number>; ruleSignal: string } {
+  let trendScore = 0;
+  const buffer = metrics.price * 0.0005;
+  if (metrics.price > metrics.ema20 + buffer) trendScore += 20;
+  else if (metrics.price < metrics.ema20 - buffer) trendScore -= 20;
+  if (metrics.ema20 > metrics.ema20Prev) trendScore += 15;
+  else if (metrics.ema20 < metrics.ema20Prev) trendScore -= 15;
+
+  let momentumScore = 0;
+  if (metrics.rsi > 60) momentumScore += 25;
+  else if (metrics.rsi < 40) momentumScore -= 25;
+  else momentumScore = (metrics.rsi - 50) * 0.5;
+
+  let volScore = 0;
+  if (metrics.percentB > 0.8) volScore += 20;
+  else if (metrics.percentB < 0.2) volScore -= 20;
+  else volScore = (metrics.percentB - 0.5) * 10;
+
+  let optionsScore = 0;
+  if (metrics.pcr > 1.2) optionsScore += 20;
+  else if (metrics.pcr < 0.8) optionsScore -= 20;
+  else optionsScore = (metrics.pcr - 1.0) * 20;
+
+  let total = 50 + trendScore + momentumScore + volScore + optionsScore;
+  const atrDampener = metrics.atr > metrics.price * 0.005 ? 0.5 : 1.0;
+  total = 50 + (total - 50) * atrDampener;
+  total = clamp(Math.round(total), 0, 100);
+
+  const ruleSignal = total >= 60 ? "BUY" : total <= 40 ? "SELL" : "NEUTRAL";
+  return {
+    score: total,
+    components: {
+      trend: trendScore,
+      momentum: momentumScore,
+      volatility: volScore,
+      options: optionsScore,
+      atrDampener,
+    },
+    ruleSignal,
+  };
+}
+
+async function fetchPythonModelScore(payload: Record<string, unknown>): Promise<PythonModelResult | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4500);
+    const response = await fetch("http://127.0.0.1:8000/model/predict", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      logger.warn({ status: response.status }, "Python model service returned an error");
+      return null;
+    }
+
+    const body = (await response.json()) as PythonModelResult;
+    return body;
+  } catch (error) {
+    logger.warn({ error }, "Unable to reach Python model service");
+    return null;
+  }
 }
 
 router.get("/predict", async (req, res) => {
   try {
-    const closes = marketStream.getPriceHistory('BANKNIFTY');
-    if (closes.length === 0) throw new Error("No live market data available");
-    
-    const price = marketStream.getLatestPrice('BANKNIFTY');
-    // Mock highs and lows since we are currently tracking only close prices via WS
-    const highs = closes.map(c => c * 1.001);
-    const lows = closes.map(c => c * 0.999);
+    const symbol = "BANKNIFTY";
+    const ant = getAntInstance(ALICE_CONFIG);
+    const toDate = Math.floor(Date.now() / 1000).toString();
+    const fromDate = Math.floor((Date.now() - 2 * 24 * 60 * 60 * 1000) / 1000).toString();
 
-    // ── Production Sentiment Engine ──────────────────────────────────────────
+    const historyResponse = await ant.getHistoricalData(symbol, fromDate, toDate, "1");
+    const history = ((historyResponse as any)?.result as any[]) || (historyResponse as any);
 
-    let sentiment = 50; // Neutral baseline
-
-    if (closes.length >= 20) {
-      const ema20 = calculateEMA(closes, 20);
-      const rsi = calculateRSI(closes, 14);
-      const bb = calculateBollingerBands(closes, 20);
-      const pcr = calculatePCR(price, 6);
-      const atr = calculateATR(highs, lows, closes, 14);
-
-      // Weighted Scoring (Total +/- 50 from base 50)
-      
-      // 1. Trend & Slope (Weight: 35%)
-      let trendScore = 0;
-      const emaBuffer = price * 0.0005; // 0.05% buffer to ignore tiny noise
-      if (price > ema20 + emaBuffer) trendScore += 20;
-      else if (price < ema20 - emaBuffer) trendScore -= 20;
-
-      const ema20_prev = calculateEMA(closes.slice(0, -5), 20); // Slope over last 5 periods
-      if (ema20 > ema20_prev) trendScore += 15;
-      else if (ema20 < ema20_prev) trendScore -= 15;
-
-      // 2. Momentum (Weight: 25%)
-      let momentumScore = 0;
-      if (rsi > 60) momentumScore += 25; // Confirmed bullish momentum
-      else if (rsi < 40) momentumScore -= 25; // Confirmed bearish momentum
-      else momentumScore = (rsi - 50) * 0.5; // Chop zone, dampen score
-
-      // 3. Volatility / Bollinger %B (Weight: 20%)
-      let volScore = 0;
-      const percentB = bb.upper !== bb.lower ? (price - bb.lower) / (bb.upper - bb.lower) : 0.5;
-      if (percentB > 0.8) volScore += 20; // Riding upper band
-      else if (percentB < 0.2) volScore -= 20; // Riding lower band
-      else volScore = (percentB - 0.5) * 10;
-
-      // 4. Options Flow / PCR (Weight: 20%)
-      let optionsScore = 0;
-      if (pcr > 1.2) optionsScore += 20; // Put writing heavily outweighs call writing
-      else if (pcr < 0.8) optionsScore -= 20; // Call writing heavily outweighs
-      else optionsScore = (pcr - 1.0) * 20;
-
-      sentiment = 50 + trendScore + momentumScore + volScore + optionsScore;
-      
-      // Final filter: If ATR is extremely high (wild volatility spikes), dampen the sentiment drastically to protect capital
-      const volatilityDampener = atr > (price * 0.005) ? 0.5 : 1.0;
-      sentiment = 50 + (sentiment - 50) * volatilityDampener;
-      
-      sentiment = Math.round(Math.max(5, Math.min(95, sentiment)));
-    } else if (closes.length >= 3) {
-      // Fallback to simple momentum for low-data scenarios
-      const window = closes.slice(-3);
-      const pctChange = ((window[window.length - 1] - window[0]) / window[0]) * 100;
-      sentiment = Math.round(Math.min(100, Math.max(0, 50 + pctChange * 25)));
+    if (!history || !Array.isArray(history) || history.length === 0) {
+      throw new Error("No live market data available from broker");
     }
 
-    // Introduce a "Dead-zone" (40 to 60) where we recommend holding/waiting to avoid false alerts
-    let prediction = "neutral";
-    if (sentiment >= 60) prediction = "call";
-    else if (sentiment <= 40) prediction = "put";
+    const closes = history.map((candle: any) => parseFloat(candle.close || candle.c || 0));
+    const highs = history.map((candle: any) => parseFloat(candle.high || candle.h || 0));
+    const lows = history.map((candle: any) => parseFloat(candle.low || candle.l || 0));
+    const opens = history.map((candle: any) => parseFloat(candle.open || candle.o || 0));
+    const price = closes[closes.length - 1];
 
-    res.json({ prediction, price, sentiment });
+    let pcr = 1.0;
+    const optionsData = await ant.getOptionsChain(symbol);
+    let callOI = 0;
+    let putOI = 0;
+    if (optionsData && optionsData.strikes && optionsData.strikes.length > 0) {
+      optionsData.strikes.forEach((strike: any) => {
+        callOI += strike.ce?.oi || 0;
+        putOI += strike.pe?.oi || 0;
+      });
+      pcr = callOI > 0 ? putOI / callOI : calculatePCR(price, 6);
+    } else {
+      pcr = calculatePCR(price, 6);
+    }
+
+    const ema20 = calculateEMA(closes, 20);
+    const ema20Prev = calculateEMA(closes.slice(0, -5), 20);
+    const rsi = calculateRSI(closes, 14);
+    const bb = calculateBollingerBands(closes, 20);
+    const atr = calculateATR(highs, lows, closes, 14);
+    const percentB = bb.upper !== bb.lower ? (price - bb.lower) / (bb.upper - bb.lower) : 0.5;
+
+    const ruleResult = buildRuleScore({
+      price,
+      ema20,
+      ema20Prev,
+      rsi,
+      percentB,
+      pcr,
+      atr,
+    });
+
+    const pythonPayload = {
+      symbol,
+      opens,
+      highs,
+      lows,
+      closes,
+      volumes: history.map((candle: any) => parseFloat(candle.volume || candle.v || 0)),
+      pcr,
+      timestamp: Math.floor(Date.now() / 1000),
+    };
+
+    const pythonResult = await fetchPythonModelScore(pythonPayload);
+    const modelScore = pythonResult?.model_score ?? 50;
+    const modelPrediction = pythonResult?.model_prediction ?? "NEUTRAL";
+    const modelConfidence = pythonResult?.confidence ?? 0;
+
+    const blendedScore = clamp(Math.round(ruleResult.score * 0.6 + modelScore * 0.4), 0, 100);
+    const finalSignal = blendedScore >= 60 ? "BUY" : blendedScore <= 40 ? "SELL" : "NEUTRAL";
+    const legacyPrediction = finalSignal === "BUY" ? "call" : finalSignal === "SELL" ? "put" : "neutral";
+
+    res.json({
+      symbol,
+      price,
+      ruleScore: ruleResult.score,
+      modelScore,
+      blendedScore,
+      sentiment: blendedScore,
+      ruleSignal: ruleResult.ruleSignal,
+      modelPrediction,
+      modelConfidence,
+      prediction: legacyPrediction,
+      tradeSignal: finalSignal,
+      details: {
+        ema20,
+        rsi,
+        percentB,
+        pcr,
+        atr,
+        ...ruleResult.components,
+      },
+    });
   } catch (err) {
     logger.error({ err }, "predict route error");
     res.status(502).json({ error: "Failed to fetch market data" });

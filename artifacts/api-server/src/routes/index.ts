@@ -17,11 +17,15 @@ marketStream.connect().then(() => {
 }).catch(err => logger.error({ err }, "Failed to start market data stream"));
 
 router.use(healthRouter);
+
+// Mount ANT routes FIRST to prevent other routers from swallowing the path
+router.use("/ant", antExampleRouter);
+router.use("/api/ant", antExampleRouter);
+
 router.use(predictRouter);
 router.use(optionsChainRouter);
 router.use(signalsRouter);
 router.use(executionRouter);
 router.use(riskRouter);
-router.use("/ant", antExampleRouter);
 
 export default router;
