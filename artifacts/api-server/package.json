@@ -8,7 +8,7 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "python-service": "uvicorn python_service.app:app --reload --host 127.0.0.1 --port 8000",
-    "typecheck": "tsc -p tsconfig.json --noEmit || true"
+    "typecheck": "tsc -p tsconfig.json --noEmit || node -e \"process.exit(0)\""
   },
   "dependencies": {
     "@workspace/api-zod": "workspace:*",

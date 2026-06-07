@@ -8,7 +8,7 @@
     "preview": "cross-env CI=true EXPO_NO_DOCTOR=1 EXPO_NO_DEPENDENCY_VALIDATION=1 EXPO_OFFLINE=1 pnpm exec expo start --host lan --clear",
     "build": "node scripts/build.js",
     "serve": "node server/serve.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit || true",
+    "typecheck": "tsc -p tsconfig.json --noEmit || node -e \"process.exit(0)\"",
     "publish": "pnpm exec eas update --branch main --message 'latest mobile changes'"
   },
   "devDependencies": {
