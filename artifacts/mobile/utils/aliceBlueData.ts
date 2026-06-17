@@ -1,6 +1,4 @@
-import { Platform } from "react-native";
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || (Platform.OS === 'android' ? 'https://nifty-bank-index-f-and-o.onrender.com/api' : 'https://nifty-bank-index-f-and-o.onrender.com/api');
+import { ANT_ENDPOINTS } from "../constants/apiConfig";
 
 export interface MarketData {
   symbol: string;
@@ -31,7 +29,7 @@ export interface GreeksData {
 }
 
 export async function fetchAliceBlueMarketData(symbol: string): Promise<MarketData> {
-  const url = `${API_URL}/ant/market/${symbol}`;
+  const url = ANT_ENDPOINTS.market(symbol);
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch market data: ${res.status}`);
   const data = await res.json();
@@ -39,7 +37,7 @@ export async function fetchAliceBlueMarketData(symbol: string): Promise<MarketDa
 }
 
 export async function fetchAliceBluePositions(): Promise<Position[]> {
-  const url = `${API_URL}/ant/positions`;
+  const url = ANT_ENDPOINTS.positions;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch positions: ${res.status}`);
   const data = await res.json();
@@ -52,7 +50,7 @@ export async function fetchAliceBlueGreeks(
   strike: number,
   type: "CE" | "PE"
 ): Promise<GreeksData> {
-  const url = `${API_URL}/ant/greeks/${symbol}/${expiry}/${strike}/${type}`;
+  const url = ANT_ENDPOINTS.greeks(symbol, expiry, strike, type);
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch Greeks: ${res.status}`);
   const data = await res.json();
@@ -60,7 +58,8 @@ export async function fetchAliceBlueGreeks(
 }
 
 export async function fetchAliceBlueOptionsChain(symbol: string, expiry?: string): Promise<any> {
-  const url = new URL(`${API_URL}/ant/options-chain/${symbol}`);
+  const baseUrl = ANT_ENDPOINTS.optionsChain(symbol);
+  const url = new URL(baseUrl);
   if (expiry) {
     url.searchParams.append('expiry', expiry);
   }

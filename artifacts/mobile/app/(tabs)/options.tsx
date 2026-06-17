@@ -1,9 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Platform, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-// Prioritize Expo environment variable (for Render), fallback to local development IPs
-const API_URL = process.env.EXPO_PUBLIC_API_URL || (Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000');
+import { SIGNAL_ENDPOINTS } from '../../constants/apiConfig';
 
 export default function OptionsEvaluator() {
   const [data, setData] = useState<any>(null);
@@ -18,8 +16,8 @@ export default function OptionsEvaluator() {
     try {
       setLoading(true);
       const [signalsRes, predictRes] = await Promise.all([
-        fetch(`${API_URL}/signals`),
-        fetch(`${API_URL}/predict`)
+        fetch(SIGNAL_ENDPOINTS.signals),
+        fetch(SIGNAL_ENDPOINTS.predict)
       ]);
       const signalsJson = await signalsRes.json();
       const predictJson = await predictRes.json();
@@ -41,7 +39,7 @@ export default function OptionsEvaluator() {
     
     setExecuting(true);
     try {
-      const res = await fetch(`${API_URL}/execute-signal`, {
+      const res = await fetch(SIGNAL_ENDPOINTS.executeSignal, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
