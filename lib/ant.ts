@@ -54,6 +54,25 @@ export class AntIntegration {
     return !!this.accessToken;
   }
 
+  getLoginUrl(): string {
+    return `https://ant.aliceblueonline.com/?appcode=${this.apiKey}`;
+  }
+
+  setAuthCode(authCode: string): void {
+    if (authCode && authCode.length > 4) {
+      this.authCode = authCode;
+    }
+  }
+
+  private async ensureAuthenticated(): Promise<void> {
+    if (!this.accessToken) {
+      const success = await this.authenticate();
+      if (!success) {
+        throw new Error("ANT authentication failed");
+      }
+    }
+  }
+
   /**
    * Authenticate with Alice Blue API
    * Get access token using credentials
@@ -65,7 +84,7 @@ export class AntIntegration {
       }
 
       if (!this.authCode) {
-        const loginUrl = `https://ant.aliceblueonline.com/?appcode=${this.apiKey}`;
+        const loginUrl = this.getLoginUrl();
         throw new Error(`Authentication requires an authCode. Please login at: ${loginUrl}`);
       }
       
@@ -109,7 +128,7 @@ export class AntIntegration {
    */
   async getMarketData(symbol: string): Promise<AntMarketData | null> {
     try {
-      if (!this.accessToken) await this.authenticate();
+      await this.ensureAuthenticated();
 
       logger.debug({ symbol }, "Fetching market data from ANT");
       
@@ -163,7 +182,7 @@ export class AntIntegration {
    */
   async getOptionsChain(symbol: string, expiry?: string) {
     try {
-      if (!this.accessToken) await this.authenticate();
+      await this.ensureAuthenticated();
 
       logger.debug({ symbol, expiry }, "Fetching options chain from ANT");
       
@@ -202,7 +221,7 @@ export class AntIntegration {
 
   async getMarginInfo(): Promise<AntMarginInfo | null> {
     try {
-      if (!this.accessToken) await this.authenticate();
+      await this.ensureAuthenticated();
       logger.debug("Fetching margin info from ANT");
 
       const response = await fetch(`${this.baseURL}/v2/margin`, {
@@ -258,7 +277,7 @@ export class AntIntegration {
     product?: "MIS" | "CNC";
   }): Promise<{ orderId: string; status: string } | null> {
     try {
-      if (!this.accessToken) await this.authenticate();
+      await this.ensureAuthenticated();
 
       logger.info({ ...params }, "Placing order on ANT");
       
@@ -300,7 +319,7 @@ export class AntIntegration {
    */
   async getPositions() {
     try {
-      if (!this.accessToken) await this.authenticate();
+      await this.ensureAuthenticated();
 
       logger.debug("Fetching positions from ANT");
       
@@ -329,7 +348,7 @@ export class AntIntegration {
    */
   async subscribeLiveTicks(symbols: string[]): Promise<boolean> {
     try {
-      if (!this.accessToken) await this.authenticate();
+      await this.ensureAuthenticated();
 
       // TODO: Implement WebSocket subscription
       // WS connection to Alice Blue feed server with token, symbols
@@ -348,7 +367,7 @@ export class AntIntegration {
    */
   async getGreeks(symbol: string, expiry: string, strike: number, type: "CE" | "PE") {
     try {
-      if (!this.accessToken) await this.authenticate();
+      await this.ensureAuthenticated();
 
       // TODO: Implement Greeks calculation/fetching from ANT
       // Some brokers provide Greeks in feed, otherwise use Black-Scholes
@@ -378,7 +397,7 @@ export class AntIntegration {
    */
   async getHistoricalData(symbol: string, fromDate: string, toDate: string, resolution: string = "1") {
     try {
-      if (!this.accessToken) await this.authenticate();
+      await this.ensureAuthenticated();
       logger.debug({ symbol }, "Fetching historical data from ANT");
       
       // Check exact history endpoint structure in broker API docs

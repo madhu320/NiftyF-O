@@ -4,7 +4,8 @@
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
-    "dev": "EXPO_PACKAGER_PROXY_URL=https://$REPLIT_EXPO_DEV_DOMAIN EXPO_PUBLIC_DOMAIN=$REPLIT_DEV_DOMAIN EXPO_PUBLIC_REPL_ID=$REPL_ID REACT_NATIVE_PACKAGER_HOSTNAME=$REPLIT_DEV_DOMAIN pnpm exec expo start --localhost --port $PORT",
+    "dev": "cross-env EXPO_NO_DOCTOR=1 EXPO_NO_DEPENDENCY_VALIDATION=1 EXPO_OFFLINE=1 pnpm exec expo start --localhost --port 19000",
+    "dev:replit": "EXPO_PACKAGER_PROXY_URL=https://$REPLIT_EXPO_DEV_DOMAIN EXPO_PUBLIC_DOMAIN=$REPLIT_DEV_DOMAIN EXPO_PUBLIC_REPL_ID=$REPL_ID REACT_NATIVE_PACKAGER_HOSTNAME=$REPLIT_DEV_DOMAIN pnpm exec expo start --localhost --port $PORT",
     "preview": "cross-env CI=true EXPO_NO_DOCTOR=1 EXPO_NO_DEPENDENCY_VALIDATION=1 EXPO_OFFLINE=1 pnpm exec expo start --host lan --clear",
     "build": "node scripts/build.js",
     "serve": "node server/serve.js",
@@ -54,7 +55,7 @@
     "react-native-svg": "15.12.1",
     "react-native-web": "^0.21.0",
     "react-native-worklets": "0.5.1",
-    "typescript": "~5.9.2",
+    "typescript": "^6.0.0",
     "zod": "catalog:",
     "zod-validation-error": "^3.4.0"
   },

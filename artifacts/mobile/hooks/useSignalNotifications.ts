@@ -18,10 +18,11 @@ Notifications.setNotificationHandler({
 
 async function requestPermissions(): Promise<boolean> {
   if (Platform.OS === "web") return false;
-  const { status: existing } = await Notifications.getPermissionsAsync();
-  if (existing === "granted") return true;
-  const { status } = await Notifications.requestPermissionsAsync();
-  return status === "granted";
+  const existing = (await Notifications.getPermissionsAsync()) as any;
+  // `granted` may not be present on the static type — cast to `any` to inspect runtime shape
+  if (existing?.granted || existing?.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL) return true;
+  const result = (await Notifications.requestPermissionsAsync()) as any;
+  return result?.granted || result?.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
 }
 
 async function sendSignalNotification(

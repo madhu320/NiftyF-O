@@ -13,6 +13,6 @@
   "devDependencies": {
     "babel-preset-expo": "^55.0.21",
     "prettier": "^3.8.1",
-    "typescript": "~5.9.2"
+    "typescript": "^6.0.0"
   }
 }

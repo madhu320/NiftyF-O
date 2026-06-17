@@ -49,6 +49,7 @@ export const ALICE_CONFIG = {
   apiKey: process.env.ALICE_API_KEY || "YOUR_ALICE_API_KEY",
   apiSecret: process.env.ALICE_API_SECRET || "YOUR_ALICE_API_SECRET",
   userId: process.env.ALICE_USER_ID || "YOUR_ALICE_USER_ID",
+  authCode: process.env.ALICE_AUTH_CODE || process.env.ALICE_AUTHCODE || undefined,
   password: process.env.ALICE_PASSWORD || "YOUR_ALICE_PASSWORD", // For 2FA if needed
   frontendRedirectUrl: process.env.ALICE_FRONTEND_REDIRECT_URL || "http://localhost:5000",
   enabled: process.env.ALICE_ENABLED === "true" || false,

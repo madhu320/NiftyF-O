@@ -16,6 +16,36 @@ const router: IRouter = Router();
 const ant = getAntInstance(ALICE_CONFIG);
 
 /**
+ * Get live market data for a symbol from Alice
+ */
+router.get("/market/:symbol", async (req: Request, res: Response) => {
+  try {
+    const { symbol } = req.params;
+    const liveData = await ant.getMarketData(symbol as string);
+
+    if (!liveData) {
+      res.status(404).json({
+        error: `No market data available for ${symbol}`,
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      symbol,
+      ltp: liveData.ltp || 0,
+      volume: liveData.volume || 0,
+      oi: liveData.oi,
+      iv: liveData.iv,
+      timestamp: Date.now(),
+    });
+  } catch (error) {
+    logger.error({ error, params: req.params }, "Failed to fetch market data");
+    res.status(500).json({ error: "Failed to fetch market data" });
+  }
+});
+
+/**
  * EXAMPLE 1: Place a real order on Alice Blue
  */
 router.post("/order/place", async (req: Request, res: Response) => {
@@ -110,29 +140,38 @@ router.get("/greeks/:symbol/:expiry/:strike/:type", async (req: Request, res: Re
 });
 
 /**
- * EXAMPLE 4: Get market data from Alice
+ * EXAMPLE 4: Get historical data from Alice
  */
-router.get("/market/:symbol", async (req: Request, res: Response) => {
+router.get("/history/:symbol", async (req: Request, res: Response) => {
   try {
     const { symbol } = req.params;
+    const { fromDate, toDate, resolution } = req.query;
+    const now = Math.floor(Date.now() / 1000);
+    const from = typeof fromDate === "string" && fromDate ? fromDate : `${now - 2 * 24 * 60 * 60}`;
+    const to = typeof toDate === "string" && toDate ? toDate : `${now}`;
+    const resolutionStr = typeof resolution === "string" ? resolution : "1";
 
-    const data = await ant.getMarketData(symbol as string);
+    const history = await ant.getHistoricalData(symbol as string, from, to, resolutionStr);
 
-    if (!data) {
-      res.status(404).json({ 
-        error: `Market data not available for ${symbol}` 
+    if (!history || (Array.isArray(history) && history.length === 0)) {
+      res.status(404).json({
+        error: `Historical data not available for ${symbol}`,
       });
       return;
     }
 
     res.json({
       success: true,
-      ...data,
+      symbol,
+      history,
+      fromDate: from,
+      toDate: to,
+      resolution: resolutionStr,
       timestamp: Date.now(),
     });
   } catch (error) {
-    logger.error({ error, symbol: req.params.symbol }, "Failed to fetch market data");
-    res.status(500).json({ error: "Failed to fetch market data" });
+    logger.error({ error, params: req.params, query: req.query }, "Failed to fetch historical data");
+    res.status(500).json({ error: "Failed to fetch historical data" });
   }
 });
 
@@ -190,6 +229,8 @@ router.get("/auth/debug", (req: Request, res: Response) => {
     apiKey: mask(ALICE_CONFIG.apiKey),
     apiSecret: mask(ALICE_CONFIG.apiSecret),
     userId: mask(ALICE_CONFIG.userId),
+    authCodeConfigured: !!ALICE_CONFIG.authCode,
+    enabled: ALICE_CONFIG.enabled,
     redirectUrl: ALICE_CONFIG.frontendRedirectUrl
   });
 });
@@ -201,15 +242,16 @@ router.get("/auth/debug", (req: Request, res: Response) => {
  */
 router.get("/auth/callback", async (req: Request, res: Response) => {
   try {
-    const { authCode } = req.query;
+    const authCode = (req.query.authCode as string) || (req.query.auth_code as string);
 
     if (!authCode) {
       res.redirect(`${ALICE_CONFIG.frontendRedirectUrl}?alice_auth=missing_code`);
       return;
     }
 
+    ant.setAuthCode(authCode);
     // Authenticate using the newly received authCode
-    const success = await ant.authenticate(authCode as string);
+    const success = await ant.authenticate(authCode);
 
     if (success) {
       // Redirect back to the production frontend or mobile app
@@ -220,6 +262,29 @@ router.get("/auth/callback", async (req: Request, res: Response) => {
   } catch (error) {
     logger.error({ error }, "Alice Blue callback failed");
     res.redirect(`${ALICE_CONFIG.frontendRedirectUrl}?alice_auth=error`);
+  }
+});
+
+router.post("/auth/code", async (req: Request, res: Response) => {
+  try {
+    const { authCode } = req.body;
+
+    if (!authCode || typeof authCode !== "string") {
+      res.status(400).json({ error: "authCode is required in the request body" });
+      return;
+    }
+
+    ant.setAuthCode(authCode);
+    const success = await ant.authenticate(authCode);
+
+    if (success) {
+      res.json({ success: true, message: "Authentication succeeded" });
+    } else {
+      res.status(401).json({ success: false, error: "Authentication failed" });
+    }
+  } catch (error) {
+    logger.error({ error, body: req.body }, "Alice Blue auth code exchange failed");
+    res.status(500).json({ error: "Authentication failed" });
   }
 });
 
