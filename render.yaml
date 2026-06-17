@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: nifty-fo-api
+    runtime: node
+    rootDir: .
+    plan: free
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @workspace/api-server run build
+    startCommand: pnpm --filter @workspace/api-server run start
+    autoDeploy: true
