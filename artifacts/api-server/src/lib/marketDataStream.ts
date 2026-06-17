@@ -28,6 +28,10 @@ function isMarketOpen(): boolean {
   return timeInMinutes >= marketStart && timeInMinutes <= marketEnd;
 }
 
+type YahooCandle = {
+  close: number;
+};
+
 class MarketDataStream extends EventEmitter {
   private isConnected = false;
   private subscriptions = new Set<string>();
@@ -53,48 +57,69 @@ class MarketDataStream extends EventEmitter {
     
     logger.info("Connecting to real-time market data WebSocket...");
     
-    // Simulate connection delay for broker WS handshake
-    await new Promise(resolve => setTimeout(resolve, 500));
     this.isConnected = true;
     this.emit('connected');
     logger.info("Market data WebSocket connected successfully");
 
-    this.startMockStream(); // Replace this call with actual broker WebSocket instantiation
+    this.startYahooStream();
   }
 
   private async fetchRealBasePrice(symbol: string): Promise<number> {
     try {
       const ticker = symbol === 'BANKNIFTY' ? '%5ENSEBANK' : '%5ENSEI';
-      const res = await fetch(`https://query2.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1m&range=1d`);
+      const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1m&range=1d`, {
+        headers: { 'User-Agent': 'Mozilla/5.0' }
+      });
       const data = await res.json() as any;
       const price = data.chart?.result?.[0]?.meta?.regularMarketPrice;
       if (price) return price;
     } catch (e) {
-      logger.warn(`Failed to fetch real base price for ${symbol}, falling back to mock base.`);
+      logger.warn(`Failed to fetch real base price for ${symbol}.`);
     }
-    return symbol === 'BANKNIFTY' ? 45000 : 21000;
+    return 0;
+  }
+
+  private async fetchRecentHistory(symbol: string): Promise<number[]> {
+    try {
+      const ticker = symbol === 'BANKNIFTY' ? '%5ENSEBANK' : '%5ENSEI';
+      const res = await fetch(
+        `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1m&range=1d`,
+        { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(4000) }
+      );
+      if (!res.ok) return [];
+      const data = await res.json() as any;
+      const quote = data.chart?.result?.[0]?.indicators?.quote?.[0];
+      const closes: number[] = (quote?.close ?? [])
+        .map((value: unknown) => Number(value))
+        .filter((value: number) => Number.isFinite(value) && value > 0);
+      return closes.slice(-120);
+    } catch {
+      return [];
+    }
   }
 
   public async subscribe(symbols: string[]) {
     for (const s of symbols) {
       this.subscriptions.add(s);
       if (!this.priceHistory.has(s)) {
-        // Only fetch index spot prices from Yahoo. Allow Option contracts to fallback to Black-Scholes.
+        // For production readiness, initialize from real historical closes only.
         if (s === 'BANKNIFTY' || s === 'NIFTY') {
-          const basePrice = await this.fetchRealBasePrice(s);
-          // FIX: Remove hardcoded ±50 variation. Use realistic ±0.2% intraday movement
-          const dailyVolatility = 0.002; // 0.2% typical intraday movement
-          const history = Array.from({ length: 60 }, () => {
-            if (!isMarketOpen()) return basePrice;
-            const randomWalk = (Math.random() - 0.5) * basePrice * dailyVolatility;
-            return Math.round(basePrice + randomWalk);
-          });
-          this.priceHistory.set(s, history);
-          this.latestPrices.set(s, history[history.length - 1]);
+          const history = await this.fetchRecentHistory(s);
+          if (history.length > 0) {
+            this.priceHistory.set(s, history);
+            this.latestPrices.set(s, history[history.length - 1]);
+          } else {
+            const basePrice = await this.fetchRealBasePrice(s);
+            if (basePrice > 0) {
+              this.priceHistory.set(s, [basePrice]);
+              this.latestPrices.set(s, basePrice);
+            }
+          }
         }
 
         if (!this.priceHistory.has(s)) {
-          this.priceHistory.set(s, [this.latestPrices.get(s) ?? 0]);
+          const last = this.latestPrices.get(s);
+          this.priceHistory.set(s, last ? [last] : []);
         }
         
         this.latestVolumes.set(s, 0);
@@ -103,36 +128,50 @@ class MarketDataStream extends EventEmitter {
     logger.info({ symbols }, "Subscribed to live market data symbols");
   }
 
-  private startMockStream() {
-    // Simulates receiving 1-second ticks from a broker WebSocket
-    this.streamInterval = setInterval(() => {
+  // Polls Yahoo Finance every 10 seconds for real index prices.
+  // Falls back silently to last known price on network error.
+  private startYahooStream() {
+    const POLL_INTERVAL_MS = 10_000;
+
+    const poll = async () => {
       if (!this.isConnected) return;
-      if (!isMarketOpen()) return; // Pause simulated ticks when the market is closed
+      if (!isMarketOpen()) return;
 
-      this.subscriptions.forEach(symbol => {
-        // We only simulate the random walk for the underlying indices to save CPU.
-        // In production, real broker ticks will overwrite all symbols (including options) here.
-        if (symbol === 'BANKNIFTY' || symbol === 'NIFTY') {
-          const currentPrice = this.latestPrices.get(symbol) ?? 0;
-          const change = (Math.random() - 0.5) * (symbol === 'BANKNIFTY' ? 10 : 5);
-          const newPrice = currentPrice + change;
-          const volume = Math.floor(Math.random() * 1000);
-          
-          this.latestPrices.set(symbol, newPrice);
-          this.latestVolumes.set(symbol, volume);
-          
-          let history = this.priceHistory.get(symbol);
-          if (!history) {
-            history = [currentPrice];
-            this.priceHistory.set(symbol, history);
+      for (const symbol of this.subscriptions) {
+        if (symbol !== 'BANKNIFTY' && symbol !== 'NIFTY') continue;
+        try {
+          const ticker = symbol === 'BANKNIFTY' ? '%5ENSEBANK' : '%5ENSEI';
+          const res = await fetch(
+            `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1m&range=1d`,
+            { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) }
+          );
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json() as any;
+          const meta = data.chart?.result?.[0]?.meta;
+          const price: number = meta?.regularMarketPrice ?? meta?.previousClose ?? this.latestPrices.get(symbol) ?? 0;
+          const volume: number = meta?.regularMarketVolume ?? 0;
+
+          if (price > 0) {
+            this.latestPrices.set(symbol, price);
+            this.latestVolumes.set(symbol, volume);
+
+            let history = this.priceHistory.get(symbol);
+            if (!history) { history = [price]; this.priceHistory.set(symbol, history); }
+            history.push(price);
+            if (history.length > 120) history.shift();
+
+            this.emit('tick', { symbol, price, volume, timestamp: Date.now() });
+            logger.debug({ symbol, price }, 'Live price updated from Yahoo Finance');
           }
-          history.push(newPrice);
-          if (history.length > 60) history.shift(); // Keep last 60 minutes for MAs/RSI
-
-          this.emit('tick', { symbol, price: newPrice, volume, timestamp: Date.now() });
+        } catch (err) {
+          logger.warn({ symbol, err }, 'Yahoo Finance poll failed, retaining last known price');
         }
-      });
-    }, 1000);
+      }
+    };
+
+    // Fire immediately then repeat
+    poll();
+    this.streamInterval = setInterval(poll, POLL_INTERVAL_MS);
   }
 
   public getLatestPrice(symbol: string): number { return this.latestPrices.get(symbol) || 0; }

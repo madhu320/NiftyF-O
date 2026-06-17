@@ -5,22 +5,37 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import joblib
-import mlflow
 import numpy as np
 import pandas as pd
 import pandas_ta as ta
-import quantstats as qs
-import xgboost as xgb
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
+
+try:
+    import mlflow
+except Exception:  # pragma: no cover - optional dependency fallback
+    mlflow = None
+
+try:
+    import quantstats as qs
+except Exception:  # pragma: no cover - optional dependency fallback
+    qs = None
+
+try:
+    import xgboost as xgb
+except Exception:  # pragma: no cover - optional dependency fallback
+    xgb = None
+
+from sklearn.linear_model import LogisticRegression
 
 MODEL_DIR = Path(__file__).resolve().parent
 MODEL_PATH = MODEL_DIR / "model.joblib"
 MLFLOW_TRACKING_URI = str(MODEL_DIR / "mlruns")
 
-mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-mlflow.set_experiment("banknifty-xgboost")
+if mlflow is not None:
+    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+    mlflow.set_experiment("banknifty-xgboost")
 
 app = FastAPI(title="BankNifty Python Model Service")
 model_cache: Optional[Any] = None
@@ -70,17 +85,20 @@ def build_feature_dataframe(payload: MarketPredictionRequest) -> pd.DataFrame:
     return df.fillna(method="ffill").fillna(0.0)
 
 
-def create_dummy_model() -> xgb.XGBClassifier:
+def create_dummy_model() -> Any:
     X = np.random.normal(size=(256, 5))
     y = (np.random.rand(256) > 0.5).astype(int)
-    model = xgb.XGBClassifier(
-        use_label_encoder=False,
-        eval_metric="logloss",
-        n_estimators=25,
-        max_depth=4,
-        learning_rate=0.1,
-        random_state=42,
-    )
+    if xgb is not None:
+            model = xgb.XGBClassifier(
+                    use_label_encoder=False,
+                    eval_metric="logloss",
+                    n_estimators=25,
+                    max_depth=4,
+                    learning_rate=0.1,
+                    random_state=42,
+            )
+    else:
+            model = LogisticRegression(max_iter=200)
     model.fit(X, y)
     joblib.dump(model, MODEL_PATH)
     return model
@@ -102,6 +120,9 @@ def load_model() -> Any:
 def compute_quantstats_metrics(returns: pd.Series) -> Dict[str, float]:
     results: Dict[str, float] = {}
     if len(returns) < 10:
+        return {"sharpe": 0.0, "annual_return": 0.0}
+
+    if qs is None:
         return {"sharpe": 0.0, "annual_return": 0.0}
 
     try:
@@ -143,15 +164,16 @@ def predict_model(payload: MarketPredictionRequest) -> MarketPredictionResponse:
     }
     tracking_details.update(compute_quantstats_metrics(df["return_1"]))
 
-    with mlflow.start_run(run_name="online_prediction", nested=True):
-        mlflow.log_param("symbol", payload.symbol)
-        mlflow.log_param("observations", len(df))
-        mlflow.log_params({"model_version": MODEL_PATH.name})
-        mlflow.log_metric("model_score", score)
-        mlflow.log_metric("confidence", confidence)
-        mlflow.log_metric("pcr", payload.pcr if payload.pcr is not None else 1.0)
-        for key, value in tracking_details.items():
-            mlflow.log_metric(key, value)
+    if mlflow is not None:
+        with mlflow.start_run(run_name="online_prediction", nested=True):
+            mlflow.log_param("symbol", payload.symbol)
+            mlflow.log_param("observations", len(df))
+            mlflow.log_params({"model_version": MODEL_PATH.name})
+            mlflow.log_metric("model_score", score)
+            mlflow.log_metric("confidence", confidence)
+            mlflow.log_metric("pcr", payload.pcr if payload.pcr is not None else 1.0)
+            for key, value in tracking_details.items():
+                mlflow.log_metric(key, value)
 
     return MarketPredictionResponse(
         model_score=score,

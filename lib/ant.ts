@@ -6,6 +6,17 @@
 import { logger } from "../artifacts/api-server/src/lib/logger";
 import crypto from "crypto";
 
+type AntEnvironment = typeof globalThis & {
+  process?: {
+    env?: {
+      ALLOW_MOCK_FALLBACKS?: string;
+    };
+  };
+};
+
+const antEnvironment = globalThis as AntEnvironment;
+const ALLOW_MOCK_FALLBACKS = antEnvironment.process?.env?.ALLOW_MOCK_FALLBACKS === "true";
+
 export interface AntCredentials {
   apiKey: string;
   apiSecret: string;
@@ -140,15 +151,17 @@ export class AntIntegration {
       });
 
       if (!response.ok) {
-        // Alice Blue uses WebSockets for live market feed, so this REST endpoint returns 404.
-        // We provide a fallback simulated response here so your frontend doesn't break.
-        logger.warn({ status: response.status, symbol }, "Market data REST API unavailable, using fallback data.");
+        logger.warn({ status: response.status, symbol }, "Market data REST API unavailable.");
+        if (!ALLOW_MOCK_FALLBACKS) {
+          return null;
+        }
+
         return {
           symbol,
-          ltp: symbol.toUpperCase().replace(/\s/g, '').includes('BANKNIFTY') ? 45000 + (Math.random() * 100 - 50) : 22000 + (Math.random() * 50 - 25),
-          oi: Math.floor(1500000 + Math.random() * 100000),
-          volume: Math.floor(250000 + Math.random() * 50000),
-          iv: 15.5,
+          ltp: symbol.toUpperCase().replace(/\s/g, '').includes('BANKNIFTY') ? 45000 : 22000,
+          oi: 0,
+          volume: 0,
+          iv: 0,
           timestamp: Date.now(),
         };
       }
@@ -164,12 +177,16 @@ export class AntIntegration {
       };
     } catch (error) {
       logger.error({ error, symbol }, "Failed to fetch market data from ANT");
+      if (!ALLOW_MOCK_FALLBACKS) {
+        return null;
+      }
+
       return {
         symbol,
         ltp: symbol.toUpperCase().replace(/\s/g, '').includes('BANKNIFTY') ? 45000 : 22000,
-        oi: 1500000,
-        volume: 250000,
-        iv: 15.5,
+        oi: 0,
+        volume: 0,
+        iv: 0,
         timestamp: Date.now(),
       };
     }
@@ -192,7 +209,16 @@ export class AntIntegration {
       });
 
       if (!response.ok) {
-        logger.warn({ status: response.status, symbol }, "Options chain REST API unavailable, using fallback data.");
+        logger.warn({ status: response.status, symbol }, "Options chain REST API unavailable.");
+        if (!ALLOW_MOCK_FALLBACKS) {
+          return {
+            symbol,
+            expiry,
+            strikes: [],
+            spot: 0,
+          };
+        }
+
         return {
           symbol,
           expiry,
@@ -210,6 +236,15 @@ export class AntIntegration {
       };
     } catch (error) {
       logger.error({ error, symbol, expiry }, "Failed to fetch options chain from ANT");
+      if (!ALLOW_MOCK_FALLBACKS) {
+        return {
+          symbol,
+          expiry,
+          strikes: [],
+          spot: 0,
+        };
+      }
+
       return {
         symbol,
         expiry,
@@ -229,7 +264,11 @@ export class AntIntegration {
       });
 
       if (!response.ok) {
-        logger.warn({ status: response.status }, "Margin REST API unavailable, using fallback margin values.");
+        logger.warn({ status: response.status }, "Margin REST API unavailable.");
+        if (!ALLOW_MOCK_FALLBACKS) {
+          return null;
+        }
+
         return {
           availableMargin: 120000,
           usedMargin: 45000,
@@ -254,6 +293,10 @@ export class AntIntegration {
       };
     } catch (error) {
       logger.error({ error }, "Failed to fetch margin info from ANT");
+      if (!ALLOW_MOCK_FALLBACKS) {
+        return null;
+      }
+
       return {
         availableMargin: 120000,
         usedMargin: 45000,
